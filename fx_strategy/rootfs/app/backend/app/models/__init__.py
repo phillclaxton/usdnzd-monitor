@@ -13,14 +13,30 @@ from app.models.rate import (
     RateSample,
 )
 from app.models.setting import AppSetting
+from app.models.strategy import (
+    Conversion,
+    DeadlineRequirement,
+    RecordSource,
+    Strategy,
+    StrategyStatus,
+    Tranche,
+    TrancheStatus,
+)
 
 __all__ = [
     "AppSetting",
     "AuditEvent",
     "AuditEventType",
+    "Conversion",
+    "DeadlineRequirement",
     "FeeModel",
     "ManualRate",
     "ProviderStatus",
     "RateAggregate",
     "RateSample",
+    "RecordSource",
+    "Strategy",
+    "StrategyStatus",
+    "Tranche",
+    "TrancheStatus",
 ]

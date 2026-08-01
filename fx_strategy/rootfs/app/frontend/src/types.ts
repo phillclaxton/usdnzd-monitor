@@ -221,3 +221,275 @@ export interface ProviderStatus {
   retry_after: string | null;
   reason: string;
 }
+
+export type AllocationType = 'percentage' | 'fixed_amount' | 'remainder';
+export type StrategyStatus =
+  | 'draft'
+  | 'waiting_for_funds'
+  | 'active'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'archived';
+export type TrancheStatus =
+  | 'pending'
+  | 'armed'
+  | 'target_reached'
+  | 'partially_completed'
+  | 'completed'
+  | 'skipped'
+  | 'cancelled';
+export type FeeType = 'percentage' | 'fixed_plus_percentage' | 'quote_only' | 'manual';
+
+export interface FeeModel {
+  id: number;
+  name: string;
+  fee_type: FeeType;
+  fixed_fee: string;
+  percentage_fee: string;
+  minimum_fee: string | null;
+  maximum_fee: string | null;
+  currency: string;
+  provider: string;
+}
+
+export interface Tranche {
+  id: number;
+  strategy_id: number;
+  sequence: number;
+  name: string;
+  allocation_type: AllocationType;
+  allocation_value: string;
+  calculated_source_amount: string;
+  target_rate: string;
+  minimum_rate: string | null;
+  deadline: string | null;
+  status: TrancheStatus;
+  intended_for_auto_conversion: boolean;
+  notifications_enabled: boolean;
+  wise_auto_conversion_reference: string | null;
+  target_first_reached_at: string | null;
+  notification_sent_at: string | null;
+  acknowledged_at: string | null;
+  completed_at: string | null;
+}
+
+export interface TrancheInput {
+  sequence: number;
+  name?: string;
+  allocation_type: AllocationType;
+  allocation_value: string;
+  target_rate: string;
+  minimum_rate?: string | null;
+  deadline?: string | null;
+  intended_for_auto_conversion?: boolean;
+  notifications_enabled?: boolean;
+  wise_auto_conversion_reference?: string | null;
+}
+
+export interface Requirement {
+  id: number;
+  strategy_id: number;
+  due_date: string;
+  required_source_amount: string | null;
+  required_percentage: string | null;
+  description: string;
+}
+
+export interface Strategy {
+  id: number;
+  name: string;
+  status: StrategyStatus;
+  source_currency: string;
+  target_currency: string;
+  initial_source_amount: string;
+  funds_available_amount: string;
+  funds_arrival_date: string | null;
+  strategy_start_date: string | null;
+  final_deadline: string | null;
+  minimum_acceptable_rate: string | null;
+  walk_away_rate: string | null;
+  require_targets_in_order: boolean;
+  fee_model_id: number | null;
+  rate_provider_id: string | null;
+  timezone: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  completed_at: string | null;
+  tranches: Tranche[];
+  requirements: Requirement[];
+}
+
+export interface StrategyInput {
+  name: string;
+  source_currency: string;
+  target_currency: string;
+  initial_source_amount: string;
+  funds_available_amount: string;
+  funds_arrival_date?: string | null;
+  final_deadline?: string | null;
+  minimum_acceptable_rate?: string | null;
+  walk_away_rate?: string | null;
+  require_targets_in_order?: boolean;
+  fee_model_id?: number | null;
+  timezone?: string;
+  notes?: string;
+  tranches: TrancheInput[];
+}
+
+export interface AllocationIssue {
+  severity: 'error' | 'warning';
+  message: string;
+}
+
+export interface ValidationReport {
+  valid: boolean;
+  total_allocated: string;
+  unallocated: string;
+  percentage_total: string;
+  issues: AllocationIssue[];
+}
+
+export interface Fee {
+  available: boolean;
+  label: string;
+  amount_source_currency: string | null;
+  amount_target_currency: string | null;
+  basis: string;
+}
+
+export interface Outcome {
+  source_amount: string;
+  rate: string;
+  gross_target_amount: string;
+  fee: Fee;
+  net_target_amount: string | null;
+  effective_rate: string | null;
+  quality: string;
+}
+
+export interface TrancheProgress {
+  tranche: Tranche;
+  distance_to_target: string | null;
+  target_reached_now: boolean;
+  estimated_gross: string | null;
+  estimated_fee: Fee;
+  estimated_net: string | null;
+  converted_source_amount: string;
+  converted_target_amount: string;
+  percent_complete: string | null;
+  upside_to_target: string | null;
+}
+
+export interface Sensitivity {
+  movement: string;
+  downside: string;
+  upside: string;
+}
+
+export interface RequirementProgress {
+  requirement: Requirement;
+  required_source_amount: string;
+  shortfall: string;
+  days_remaining: number | null;
+  overdue: boolean;
+}
+
+export interface WalkAway {
+  reached: boolean;
+  walk_away_rate: string | null;
+  remaining_source_amount: string;
+  convert_now: Outcome | null;
+  existing_blended_rate: string | null;
+  blended_if_converted_now: string | null;
+  highest_outstanding_target: string | null;
+  difference_versus_waiting: string | null;
+  rate_movement_to_next_target: string | null;
+  sensitivity: Sensitivity[];
+}
+
+export interface Zone {
+  label: string;
+  guidance: string;
+  lower_bound: string | null;
+}
+
+export interface Comparisons {
+  versus_start_rate: string | null;
+  versus_six_month_high: string | null;
+  versus_six_month_low: string | null;
+  versus_today: string | null;
+  versus_equal_schedule: string | null;
+}
+
+export interface StrategySummary {
+  strategy: Strategy;
+  current_rate: string | null;
+  rate_status: RateStatus;
+  rate_zone: Zone | null;
+  initial_source_amount: string;
+  available_source_amount: string;
+  converted_source_amount: string;
+  remaining_source_amount: string;
+  percent_converted: string | null;
+  gross_target_received: string;
+  net_target_received: string;
+  total_fees: string | null;
+  blended_gross_rate: string | null;
+  blended_effective_rate: string | null;
+  best_conversion_rate: string | null;
+  worst_conversion_rate: string | null;
+  average_fee_percentage: string | null;
+  convert_all_now: Outcome | null;
+  next_target_rate: string | null;
+  next_target_source_amount: string | null;
+  next_target_upside: string | null;
+  one_cent_exposure: string;
+  sensitivity: Sensitivity[];
+  tranche_progress: TrancheProgress[];
+  requirements: RequirementProgress[];
+  walk_away: WalkAway;
+  comparisons: Comparisons;
+  days_to_deadline: number | null;
+  deadline_severity: string;
+  deadline_message: string;
+  fee_model: FeeModel | null;
+  warnings: string[];
+}
+
+export interface ScenarioLeg {
+  source_amount: string;
+  rate: string;
+  label: string;
+}
+
+export interface Scenario {
+  key: string;
+  name: string;
+  description: string;
+  total_source_amount: string;
+  gross_target_amount: string;
+  fee: Fee;
+  net_target_amount: string | null;
+  blended_rate: string;
+  effective_rate: string | null;
+  exposed_source_amount: string;
+  one_cent_exposure: string;
+  rate_required: string | null;
+  legs: ScenarioLeg[];
+  assumptions: string[];
+}
+
+export interface Scenarios {
+  scenarios: Scenario[];
+  note: string;
+}
+
+export interface StrategyTemplate {
+  key: string;
+  name: string;
+  description: string;
+  tranches: TrancheInput[];
+}

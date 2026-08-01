@@ -147,6 +147,58 @@ class RetentionSettings(Section):
     store_raw_payloads: bool = False
 
 
+class RateZoneSetting(Section):
+    """One band of the rate, with a label and guidance.
+
+    These are editable labels for orientation. They are not forecasts, and the
+    application never acts on them.
+    """
+
+    label: str
+    guidance: str = ""
+    #: Inclusive lower bound. ``None`` marks the bottom band.
+    lower_bound: RateStr | None = None
+
+
+def _default_zones() -> list[RateZoneSetting]:
+    """The example zones from the product specification."""
+    return [
+        RateZoneSetting(
+            label="Unfavourable", guidance="Avoid discretionary conversion.", lower_bound=None
+        ),
+        RateZoneSetting(
+            label="Weak",
+            guidance="Convert only amounts required soon.",
+            lower_bound=Decimal("1.6800"),
+        ),
+        RateZoneSetting(
+            label="Acceptable",
+            guidance="Begin smaller staged conversions.",
+            lower_bound=Decimal("1.7000"),
+        ),
+        RateZoneSetting(
+            label="Good",
+            guidance="Convert meaningful tranches.",
+            lower_bound=Decimal("1.7300"),
+        ),
+        RateZoneSetting(
+            label="Very good",
+            guidance="Convert more aggressively.",
+            lower_bound=Decimal("1.7600"),
+        ),
+        RateZoneSetting(
+            label="Excellent",
+            guidance="Strongly consider completing most or all of the remaining conversion.",
+            lower_bound=Decimal("1.7800"),
+        ),
+    ]
+
+
+class ZoneSettings(Section):
+    enabled: bool = True
+    zones: list[RateZoneSetting] = Field(default_factory=_default_zones)
+
+
 class SimulationSettings(Section):
     enabled: bool = False
     simulated_rate: RateStr | None = None
@@ -168,6 +220,7 @@ class Settings(BaseModel):
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
     home_assistant: HomeAssistantSettings = Field(default_factory=HomeAssistantSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
+    zones: ZoneSettings = Field(default_factory=ZoneSettings)
     simulation: SimulationSettings = Field(default_factory=SimulationSettings)
 
 
@@ -182,4 +235,5 @@ class SettingsUpdate(BaseModel):
     notifications: NotificationSettings | None = None
     home_assistant: HomeAssistantSettings | None = None
     retention: RetentionSettings | None = None
+    zones: ZoneSettings | None = None
     simulation: SimulationSettings | None = None

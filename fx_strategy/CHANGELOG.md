@@ -4,6 +4,37 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-01
+
+Strategies, tranches and the dashboard.
+
+### Added
+
+- Calculation engine as pure Decimal functions: gross, fee, net, effective and
+  blended rates; remaining balance; one-cent exposure; sensitivity; target
+  upside; walk-away analysis; deadline bands; scenario evaluation.
+- Strategy and tranche models with percentage, fixed-amount and remainder
+  allocation. Rounding residue is pushed onto the last percentage tranche so the
+  parts always sum exactly to the whole.
+- Recommended ladder template (15/20/25/20/20% at 1.7200-1.8000), equal-tranche
+  and monitor-only templates.
+- Strategy lifecycle: draft, activate, pause, resume, complete, duplicate. A
+  strategy carrying recorded conversions is archived rather than deleted.
+- Dashboard summary endpoint returning position, opportunity, tranche progress,
+  exposure, walk-away analysis, dated requirements and comparisons in one call.
+- Scenario comparison across convert-now, the target ladder, an equal schedule
+  and a user-supplied rate, presented as trade-offs with no "best" label.
+- Configurable rate zones with the specification's default bands.
+- Dashboard, strategy editor and scenario pages.
+
+### Notes
+
+- Every displayed amount states whether it is gross, an estimate or an actual
+  result. With no fee model configured the app shows "Fee not included" rather
+  than a zero fee, and reports net as not calculable.
+- Moving a tranche's target rate resets its reached state, so a raised target is
+  never left flagged as met at the old level.
+
 ## [0.2.0] - 2026-08-01
 
 Rate monitoring.

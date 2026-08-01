@@ -8,11 +8,15 @@ import pytest
 
 from app.money import (
     MoneyError,
+    decimal_to_str,
     invert_rate,
     quantize_display,
     quantize_money,
+    quantize_percent,
     quantize_rate,
+    quantize_target,
     require_currency,
+    require_non_negative,
     require_positive,
     safe_divide,
     to_decimal,
@@ -76,3 +80,20 @@ def test_decimal_arithmetic_is_exact_where_float_is_not() -> None:
     assert to_decimal("0.1") + to_decimal("0.2") == to_decimal("0.3")
     # 800,000 USD at 1.7620 must be exactly 1,409,600 NZD.
     assert to_decimal("800000") * to_decimal("1.7620") == Decimal("1409600.0000")
+
+
+def test_quantize_target_and_percent() -> None:
+    assert quantize_target("1.76004") == Decimal("1.7600")
+    assert quantize_percent("33.3333335") == Decimal("33.333334")
+
+
+def test_require_non_negative_allows_zero_but_not_less() -> None:
+    assert require_non_negative(Decimal("0")) == Decimal("0")
+    with pytest.raises(MoneyError):
+        require_non_negative(Decimal("-0.0001"))
+
+
+def test_decimal_to_str_preserves_scale_and_avoids_exponents() -> None:
+    assert decimal_to_str(Decimal("1.75000000")) == "1.75000000"
+    assert decimal_to_str(Decimal("1E+6")) == "1000000"
+    assert decimal_to_str(None) is None
