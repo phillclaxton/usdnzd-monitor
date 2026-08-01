@@ -522,3 +522,45 @@ export interface NotificationLogEntry {
   created_at: string;
   delivered_at: string | null;
 }
+
+export interface Conversion {
+  id: number;
+  strategy_id: number;
+  tranche_id: number | null;
+  source_amount: string;
+  target_amount: string;
+  gross_rate: string;
+  effective_rate: string;
+  fee_source_currency: string | null;
+  fee_target_currency: string | null;
+  fee_total_target_equivalent: string | null;
+  provider: string;
+  provider_transaction_id: string | null;
+  executed_at: string;
+  record_source: string;
+  simulated: boolean;
+  notes: string;
+  receipt_filename: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversionList {
+  conversions: Conversion[];
+  total_source_amount: string;
+  total_target_amount: string;
+  blended_gross_rate: string | null;
+  blended_effective_rate: string | null;
+  total_fees: string | null;
+}
+
+export interface ConversionImportPreview {
+  total_rows: number;
+  accepted: number;
+  rejected: number;
+  duplicates: number;
+  errors: { row: number; message: string }[];
+  sample: Record<string, unknown>[];
+  imported: number;
+  committed: boolean;
+}

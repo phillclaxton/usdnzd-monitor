@@ -4,6 +4,32 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-01
+
+Conversion recording.
+
+### Added
+
+- Conversion CRUD with validation: positive amounts, and a refusal to record
+  more than is still unconverted unless the user explicitly says they are
+  correcting an earlier record.
+- Duplicate detection on the provider transaction ID, so a reconciliation run
+  or a re-imported CSV cannot double-count a conversion.
+- Splitting one conversion across several tranches, with the rounding residue
+  placed on the last part so the pieces sum exactly to the entered amount.
+- Tranche status derived from what was actually converted: partially completed,
+  then completed. Deleting a conversion reopens its tranche.
+- Corrections and deletions keep every previous value in the audit trail.
+- Conversion CSV import with a dry-run preview that reports rejected rows,
+  duplicates and unresolved tranche references; export in the same format.
+- Conversions page with a manual entry form, the implied effective rate shown
+  live, CSV import preview, and a delete flow that asks for a reason.
+
+### Notes
+
+- Conversions marked simulated are excluded from the real position, the blended
+  rate and every exposure figure.
+
 ## [0.4.0] - 2026-08-01
 
 Notifications.

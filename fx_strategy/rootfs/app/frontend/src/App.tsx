@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import Layout from './components/Layout';
 import { Loading } from './components/ui';
+import ConversionsPage from './pages/ConversionsPage';
 import Dashboard from './pages/Dashboard';
 import ScenariosPage from './pages/ScenariosPage';
 import SettingsPage from './pages/SettingsPage';
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/chart" element={<ChartPage />} />
           <Route path="/strategy" element={<StrategyEditor />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/conversions" element={<ConversionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
