@@ -564,3 +564,35 @@ export interface ConversionImportPreview {
   imported: number;
   committed: boolean;
 }
+
+export interface WiseStatus {
+  configured: boolean;
+  connected: boolean;
+  read_only: boolean;
+  environment: string;
+  message: string;
+  profile_id: string;
+  profiles: { id: string; type: string }[];
+  token_hint: string;
+  latency_ms: number | null;
+  notice: string;
+}
+
+export interface WiseBalance {
+  balance_id: string;
+  currency: string;
+  amount: string;
+  reserved: string;
+  type: string;
+}
+
+export interface ReconcileResult {
+  dry_run: boolean;
+  fetched: number;
+  matched: number;
+  imported: number;
+  skipped_other_pair: number;
+  errors: string[];
+  imported_references: string[];
+  matched_references: string[];
+}

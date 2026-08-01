@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import NotificationSettingsPanel from '@/components/NotificationSettings';
+import WiseSettingsPanel from '@/components/WiseSettings';
 import { Banner, Card, Field, Loading, Tag } from '@/components/ui';
 import { useProviderStatus } from '@/hooks/useRates';
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
@@ -218,6 +219,8 @@ export default function SettingsPage() {
           </table>
         </div>
       </Card>
+
+      <WiseSettingsPanel />
 
       <NotificationSettingsPanel
         settings={settings.data}

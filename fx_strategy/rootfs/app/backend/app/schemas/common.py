@@ -38,7 +38,18 @@ def _quantizer(quant: Decimal) -> Any:
     return _apply
 
 
-_serialize = PlainSerializer(lambda v: format(v, "f") if v is not None else None, return_type=str)
+def _render(value: Any) -> str | None:
+    """Render a Decimal as a plain string.
+
+    Tolerates a value that is already a string so a serialization error can
+    never take down a settings response.
+    """
+    if value is None:
+        return None
+    return format(value, "f") if isinstance(value, Decimal) else str(value)
+
+
+_serialize = PlainSerializer(_render, return_type=str)
 
 #: A decimal with no enforced scale.
 DecimalStr = Annotated[Decimal, BeforeValidator(_parse_decimal), _serialize]

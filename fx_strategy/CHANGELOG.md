@@ -4,6 +4,33 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-01
+
+Wise read-only integration.
+
+### Added
+
+- Wise connection test that reports precisely which call failed, profile
+  discovery, balance reading and completed-conversion reading.
+- Reconciliation between Wise's completed conversions and the records held
+  here, defaulting to a dry run. Matching is on the Wise reference, so running
+  it twice imports nothing twice.
+- Quote endpoint for fee estimation, with the result labelled as an estimate
+  and marked not executable by this application.
+- Encrypted credential storage with a masked hint, a connection test, and
+  audit events that record that a credential changed without recording its
+  value.
+- `app/services/execution.py`: the `ConversionExecutor` interface a future
+  module would implement, the eleven conditions such a module would have to
+  satisfy, and `DisabledExecutor`, which refuses both methods.
+- `GET /api/v1/wise/execution-policy` states the position, and `POST
+  /api/v1/wise/execute` returns an explicit refusal rather than a 404.
+
+### Notes
+
+- There is no code path in this application that converts or transfers money.
+  A test asserts the route table contains no such endpoint.
+
 ## [0.6.0] - 2026-08-01
 
 Home Assistant entities.
