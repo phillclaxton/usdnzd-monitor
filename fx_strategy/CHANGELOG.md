@@ -4,6 +4,35 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-01
+
+Home Assistant entities.
+
+### Added
+
+- MQTT discovery publishing every entity the specification lists: 25 sensors,
+  7 binary sensors, 5 buttons and 2 optional writable numbers, with a device
+  entry, availability topic and a last-will message so entities go unavailable
+  rather than showing a frozen value when the app stops.
+- Entity attributes on the rate and strategy sensors as specified, including
+  next target, distance to target, 24-hour and six-month ranges, tranche counts
+  and the walk-away rate.
+- Commands from Home Assistant (button presses, writable numbers) validated
+  exactly as the equivalent API call, and audited.
+- REST fallback for installations without a broker, publishing a smaller set of
+  states and saying plainly that they do not survive a restart.
+- `POST /api/v1/home-assistant/publish` and `GET .../entities`, the latter
+  showing exactly what would be published without needing a broker.
+- Entity cleanup: clearing retained discovery configs removes the entities from
+  Home Assistant rather than orphaning them.
+
+### Notes
+
+- A figure that cannot be calculated is published as an empty state, which Home
+  Assistant shows as unknown. It is never published as zero.
+- No writable entity exposes a target rate: changing one has to go through the
+  validating, audited API.
+
 ## [0.5.0] - 2026-08-01
 
 Conversion recording.

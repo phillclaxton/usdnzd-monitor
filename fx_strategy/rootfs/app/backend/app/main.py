@@ -21,7 +21,7 @@ from app.config import AppConfig, get_config
 from app.database import checkpoint_wal, dispose_engine, get_sessionmaker
 from app.logging_setup import configure_logging, get_logger
 from app.scheduler import get_scheduler
-from app.services import monitor, settings_service
+from app.services import monitor, publisher, settings_service
 from app.web import FrontendFiles, robots_txt
 
 log = get_logger(__name__)
@@ -59,7 +59,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     scheduler = get_scheduler()
     scheduler.on_refresh(monitor.run_after_refresh)
+    scheduler.on_refresh(publisher.after_refresh)
     if not config.testing:
+        async with get_sessionmaker()() as session:
+            await publisher.start_publisher(session, await settings_service.load_settings(session))
         # The test suite drives jobs explicitly; a background poller would make
         # tests depend on wall-clock timing.
         await scheduler.start()
@@ -70,6 +73,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         log.info("shutting_down")
         await scheduler.shutdown()
+        if not config.testing:
+            async with get_sessionmaker()() as session:
+                await publisher.stop_publisher(await settings_service.load_settings(session))
         try:
             await checkpoint_wal()
         except Exception as exc:  # pragma: no cover - best-effort on shutdown

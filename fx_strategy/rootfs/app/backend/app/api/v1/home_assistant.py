@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -96,6 +97,61 @@ async def test_notification(
         services=result.services,
         errors=result.errors,
     )
+
+
+class PublishOut(Schema):
+    transport: str
+    entities: int
+    discovery: int
+    errors: list[str]
+    message: str
+
+
+@router.post("/publish", response_model=PublishOut, summary="Publish entities now")
+async def publish_entities(
+    session: SessionDep, settings: SettingsDep, force_discovery: bool = False
+) -> PublishOut:
+    """Re-publish every entity, optionally resending the discovery configs."""
+    from app.services import publisher
+
+    result = await publisher.publish(session, settings, force_discovery=force_discovery)
+    return PublishOut(
+        transport=result.transport,
+        entities=result.entities,
+        discovery=result.discovery,
+        errors=result.errors,
+        message=result.message,
+    )
+
+
+class EntityPreviewOut(Schema):
+    entity_id: str
+    name: str
+    component: str
+    state: str
+    attributes: dict[str, Any]
+
+
+@router.get(
+    "/entities", response_model=list[EntityPreviewOut], summary="Preview published entities"
+)
+async def preview_entities(session: SessionDep, settings: SettingsDep) -> list[EntityPreviewOut]:
+    """Show exactly what would be published, without needing a broker."""
+    from app.home_assistant.entities import state_payload
+    from app.home_assistant.mqtt import all_definitions
+    from app.services import publisher
+
+    context = await publisher.build_context(session, settings)
+    return [
+        EntityPreviewOut(
+            entity_id=definition.entity_id,
+            name=definition.name,
+            component=definition.component,
+            state=state_payload(definition, context),
+            attributes=definition.attributes(context) if definition.attributes else {},
+        )
+        for definition in all_definitions(context, settings)
+    ]
 
 
 @router.get(
