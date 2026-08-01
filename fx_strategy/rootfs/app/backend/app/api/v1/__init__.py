@@ -12,6 +12,7 @@ from app.api.v1 import (
     rates,
     settings,
     strategies,
+    system,
     tranches,
     wise,
 )
@@ -24,6 +25,7 @@ api_router.include_router(tranches.router)
 api_router.include_router(conversions.router)
 api_router.include_router(wise.router)
 api_router.include_router(home_assistant.router)
+api_router.include_router(system.router)
 api_router.include_router(settings.router)
 api_router.include_router(audit.router)
 

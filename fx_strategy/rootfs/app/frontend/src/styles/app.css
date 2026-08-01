@@ -79,6 +79,11 @@ body {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+  /* A grid item defaults to min-width: auto, which is its min-content width.
+     Without this, the wide tables inside push the whole page sideways instead
+     of scrolling within their own wrapper — on a phone the body ends up 1200px
+     wide. */
+  min-width: 0;
 }
 
 .fx-nav {

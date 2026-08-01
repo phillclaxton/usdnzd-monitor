@@ -11,7 +11,7 @@ the rules cannot drift apart across call sites.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +59,11 @@ async def run_after_refresh(
     rate = current.rate
     rate_is_stale = current.is_stale
 
+    # Confirmation spacing is measured against when the samples were observed,
+    # not when this code ran, so a replay exercises the same rules that live
+    # polling does.
+    observed_at = current.sample.retrieved_at if current.sample is not None else None
+
     for strategy in await strategies.monitored_strategies(session):
         result.evaluated_strategies += 1
         await _evaluate_strategy(
@@ -68,6 +73,7 @@ async def run_after_refresh(
             rate=rate,
             rate_is_stale=rate_is_stale,
             disagreement=outcome.disagreement_exceeded,
+            observed_at=observed_at,
             result=result,
         )
     return result
@@ -100,6 +106,7 @@ async def _evaluate_strategy(
     rate_is_stale: bool,
     disagreement: bool,
     result: MonitorResult,
+    observed_at: datetime | None = None,
 ) -> None:
     fee_model = await strategies.get_fee_model(session, strategy.fee_model_id)
     assumption = strategies.fee_assumption_from(fee_model)
@@ -110,6 +117,7 @@ async def _evaluate_strategy(
         settings,
         rate=rate,
         rate_is_stale=rate_is_stale,
+        sample_at=observed_at,
         provider_disagreement=disagreement,
         assumption=assumption,
     )

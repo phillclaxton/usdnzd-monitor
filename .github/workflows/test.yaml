@@ -129,6 +129,8 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: ${{ env.FRONTEND }}
+        # FX_CHROMIUM_PATH can point at a pre-installed Chromium instead; see
+        # docs/development.md.
         run: npx playwright install --with-deps chromium
 
       - name: Run end-to-end tests

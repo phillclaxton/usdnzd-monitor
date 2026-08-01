@@ -59,9 +59,19 @@ Assistant login and needs no port forwarding.
 | Document | Contents |
 | --- | --- |
 | [App documentation](fx_strategy/DOCS.md) | Installation, configuration, first-run setup |
+| [Installation](docs/installation.md) | Adding the repository, the app options, upgrading |
+| [First-run setup](docs/setup.md) | The setup wizard, building your first ladder |
+| [Rate providers](docs/rate-providers.md) | Choosing providers, fallback order, manual rates |
+| [Wise](docs/wise.md) | Read-only credentials, reconciliation, why nothing executes |
+| [Home Assistant entities](docs/mqtt.md) | MQTT discovery, every entity published, the REST fallback |
+| [Backup and restore](docs/backup-restore.md) | What a backup contains, what it deliberately omits |
+| [CSV formats](docs/csv-formats.md) | Import and export column definitions |
+| [Troubleshooting](docs/troubleshooting.md) | Common problems and the diagnostics bundle |
 | [Architecture](docs/architecture.md) | How the pieces fit together |
 | [API reference](docs/api.md) | The internal HTTP API |
 | [Security model](docs/security.md) | Threat model, secret handling, what is trusted |
+| [Development](docs/development.md) | Running the stack locally, tests, coverage bars |
+| [Release process](docs/release-process.md) | Versioning, the multi-arch build, publishing |
 | [Upstream notes](docs/upstream-notes.md) | Where this build differs from the original specification |
 
 ## Development

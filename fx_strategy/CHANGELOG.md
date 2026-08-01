@@ -4,6 +4,62 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-08-01
+
+First complete release. Everything the specification describes is implemented,
+tested and documented.
+
+### Added
+
+- **Simulation mode.** Inject a rate, replay a sequence of rates through the
+  whole pipeline — targets, confirmation, notifications, deadlines — and reset
+  afterwards. Every simulated record is marked as such and excluded from the
+  real position, the blended rate and every exposure figure. A permanent banner
+  is shown while it is on, and `simulation/reset` deletes only simulated
+  records.
+- **Backup and restore.** A portable JSON document of every table, with
+  `contains_secrets: false` and a note that credentials must be re-entered.
+  Restore refuses to merge into a database that already holds strategies unless
+  `replace` is set, so it cannot silently duplicate a portfolio.
+- **Diagnostics bundle.** Version, architecture, database size and integrity,
+  provider health, scheduler state, Home Assistant and MQTT status, and the last
+  100 log lines — with credentials absent and account and transaction
+  identifiers masked.
+- **Clock-drift warning** when the provider's timestamp and the host clock
+  differ by more than an hour, since sample ordering drives the confirmation
+  rules.
+- **End-to-end tests** running the real backend behind a proxy that mimics
+  Ingress, covering the full specification narrative: create the ladder,
+  activate, cross a target, record the conversion, check the blended rate,
+  export, reload. A separate mobile project checks the phone layout, and one
+  test asserts that no credential appears anywhere in the diagnostics bundle.
+- **Documentation**: installation, first-run setup, rate providers, Wise,
+  entities, backup and restore, CSV formats, troubleshooting, development,
+  release process, and notes on where upstream APIs differ from the
+  specification.
+- **CI**: lint, format, type-check, tests at 85% overall and 95% on the
+  financial calculation modules, frontend build and tests, end-to-end tests, and
+  manifest validation.
+
+### Fixed
+
+- Target confirmation during replay used the wall clock rather than the sample's
+  own timestamp, so the two-sample spacing rule was never satisfied and a replay
+  produced no notifications. Sample time is now threaded through
+  `evaluate_targets`.
+- The dashboard scrolled sideways on a phone: the main region is a grid item, so
+  its default `min-width: auto` let a wide table stretch the page instead of
+  scrolling inside its own wrapper.
+- Restoring a backup mis-typed columns whose SQLAlchemy type declines to report
+  a `python_type`. Coercion now dispatches on the column type itself.
+
+### Notes
+
+- Coverage measurement needs `concurrency = ["thread", "greenlet"]`: SQLAlchemy
+  runs handler code inside greenlets, and without it request handlers that touch
+  the database are reported as unexecuted.
+- Still no code path that converts or transfers money.
+
 ## [0.7.0] - 2026-08-01
 
 Wise read-only integration.

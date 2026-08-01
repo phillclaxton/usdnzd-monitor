@@ -596,3 +596,79 @@ export interface ReconcileResult {
   imported_references: string[];
   matched_references: string[];
 }
+
+export interface SimulationStatus {
+  enabled: boolean;
+  banner: string;
+  simulated_rate: string | null;
+  time_acceleration: number;
+  force_provider_error: boolean;
+  force_disagreement: boolean;
+  simulated_samples: number;
+  simulated_conversions: number;
+  replay_cursor: number;
+}
+
+export interface DiagnosticsProvider {
+  provider: string;
+  healthy: boolean;
+  consecutive_failures: number;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_latency_ms: number | null;
+  last_error: string | null;
+}
+
+export interface Diagnostics {
+  app: {
+    version: string;
+    architecture: string;
+    python: string;
+    platform: string;
+    simulation_mode: boolean;
+    ingress_entry_configured: boolean;
+  };
+  database: {
+    path: string;
+    size_bytes: number;
+    integrity_problems: string[];
+    counts: Record<string, number>;
+  };
+  rates: {
+    last_sample_at: string | null;
+    last_provider: string | null;
+    last_provider_timestamp: string | null;
+    clock_warning: string | null;
+    providers: DiagnosticsProvider[];
+    failing_providers: string[];
+  };
+  scheduler: {
+    running: boolean;
+    jobs: { id: string; name: string; next_run_at: string | null }[];
+    last_run_at: string | null;
+    last_error: string | null;
+    last_provider: string | null;
+  };
+  home_assistant: {
+    available: boolean;
+    message: string;
+    latency_ms: number | null;
+    notify_services_discovered: number;
+    configured_services: string[];
+  };
+  mqtt: {
+    mqtt_configured: boolean;
+    mqtt_connected: boolean;
+    mqtt_last_error: string;
+    mqtt_last_publish_at: string;
+    mqtt_entities_published: number;
+    mqtt_discovery_sent: boolean;
+    mqtt_commands_received: number;
+  };
+  wise: Record<string, unknown>;
+  credentials: Record<string, { configured: boolean }>;
+  secrets_file_mode: string | null;
+  recent_logs: string[];
+  generated_at: string;
+  note: string;
+}

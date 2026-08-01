@@ -1,6 +1,6 @@
 [project]
 name = "fx-strategy-backend"
-version = "0.7.0"
+version = "1.0.0"
 description = "FX Strategy Manager backend for Home Assistant"
 requires-python = ">=3.13"
 license = { text = "MIT" }
@@ -63,6 +63,9 @@ filterwarnings = ["error::DeprecationWarning:app.*"]
 [tool.coverage.run]
 source = ["app"]
 omit = ["app/tests/*", "alembic/*"]
+# SQLAlchemy's asyncio layer runs application code inside greenlets. Without
+# this, request handlers that touch the database are reported as unexecuted.
+concurrency = ["thread", "greenlet"]
 
 [tool.mypy]
 python_version = "3.13"

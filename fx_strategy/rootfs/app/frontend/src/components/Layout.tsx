@@ -11,6 +11,7 @@ const NAV = [
   { to: '/scenarios', label: 'Scenarios', glyph: '⚖' },
   { to: '/conversions', label: 'Conversions', glyph: '💱' },
   { to: '/settings', label: 'Settings', glyph: '⚙' },
+  { to: '/diagnostics', label: 'Diagnostics', glyph: '🩺' },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {

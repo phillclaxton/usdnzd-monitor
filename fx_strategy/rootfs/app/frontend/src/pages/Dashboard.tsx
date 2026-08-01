@@ -125,8 +125,9 @@ export default function Dashboard() {
               deadline.
             </p>
             <p>
-              <Link to="/strategy">Create one now</Link> — the recommended ladder loads with a
-              single click.
+              <Link to="/setup">Run the setup wizard</Link> — it walks through the amount, the
+              ladder, fees and notifications in a few steps. Or{' '}
+              <Link to="/strategy">build one directly</Link>.
             </p>
           </EmptyState>
         </Card>
