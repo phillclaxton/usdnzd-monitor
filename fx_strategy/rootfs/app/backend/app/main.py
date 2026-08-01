@@ -21,7 +21,7 @@ from app.config import AppConfig, get_config
 from app.database import checkpoint_wal, dispose_engine, get_sessionmaker
 from app.logging_setup import configure_logging, get_logger
 from app.scheduler import get_scheduler
-from app.services import settings_service
+from app.services import monitor, settings_service
 from app.web import FrontendFiles, robots_txt
 
 log = get_logger(__name__)
@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await session.commit()
 
     scheduler = get_scheduler()
+    scheduler.on_refresh(monitor.run_after_refresh)
     if not config.testing:
         # The test suite drives jobs explicitly; a background poller would make
         # tests depend on wall-clock timing.

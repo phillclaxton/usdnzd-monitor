@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import NotificationSettingsPanel from '@/components/NotificationSettings';
 import { Banner, Card, Field, Loading, Tag } from '@/components/ui';
 import { useProviderStatus } from '@/hooks/useRates';
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
@@ -27,7 +28,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
 
   if (settings.isLoading || !settings.data) return <Loading label="Loading settings…" />;
-  const { general, formatting, providers: providerSettings, notifications } = settings.data;
+  const { general, formatting, providers: providerSettings } = settings.data;
 
   const save = (patch: Partial<Settings>) => {
     setSaved(false);
@@ -218,30 +219,11 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <Card title="Notifications">
-        <Field
-          label="Home Assistant notify services"
-          hint="one per line, for example notify.mobile_app_phills_iphone"
-          htmlFor="notify"
-        >
-          <textarea
-            id="notify"
-            rows={3}
-            defaultValue={notifications.services.join('\n')}
-            onBlur={(event) =>
-              save({
-                notifications: {
-                  ...notifications,
-                  services: event.target.value
-                    .split('\n')
-                    .map((line) => line.trim())
-                    .filter(Boolean),
-                },
-              })
-            }
-          />
-        </Field>
-      </Card>
+      <NotificationSettingsPanel
+        settings={settings.data}
+        timezone={general.timezone}
+        onSave={save}
+      />
     </>
   );
 }

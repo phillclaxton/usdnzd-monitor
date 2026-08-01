@@ -125,6 +125,17 @@ export interface SimulationSettings {
   replay_cursor: number;
 }
 
+export interface RateZoneSetting {
+  label: string;
+  guidance: string;
+  lower_bound: string | null;
+}
+
+export interface ZoneSettings {
+  enabled: boolean;
+  zones: RateZoneSetting[];
+}
+
 export interface Settings {
   general: GeneralSettings;
   formatting: FormattingSettings;
@@ -132,6 +143,7 @@ export interface Settings {
   notifications: NotificationSettings;
   home_assistant: HomeAssistantSettings;
   retention: RetentionSettings;
+  zones: ZoneSettings;
   simulation: SimulationSettings;
 }
 
@@ -492,4 +504,21 @@ export interface StrategyTemplate {
   name: string;
   description: string;
   tranches: TrancheInput[];
+}
+
+export interface NotificationLogEntry {
+  id: number;
+  rule_type: string;
+  severity: string;
+  title: string;
+  message: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  delivered: boolean;
+  queued: boolean;
+  attempts: number;
+  last_error: string | null;
+  suppressed_reason: string | null;
+  created_at: string;
+  delivered_at: string | null;
 }

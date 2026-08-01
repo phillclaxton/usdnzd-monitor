@@ -4,6 +4,37 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-01
+
+Notifications.
+
+### Added
+
+- Per-target alert state machine: below, near, reached_unconfirmed,
+  reached_confirmed, notified, acknowledged, completed, reset.
+- Target confirmation requires two consecutive qualifying samples at least 30
+  seconds apart, a fresh (non-stale) rate, and providers agreeing within the
+  configured threshold. All three are configurable.
+- Reset hysteresis: a target can only alert again after the rate falls below
+  `target - hysteresis`, returns, and the cooldown expires.
+- Approaching-target, walk-away, deadline, rate-reversal and provider-outage
+  alerts.
+- Notification delivery through Home Assistant notify services discovered from
+  the running installation. Cooldowns per rule and entity, quiet hours with a
+  critical override, a bounded retry queue for when Home Assistant is down, and
+  a log of every attempt including failures.
+- `/api/v1/home-assistant` endpoints: status, service discovery, test
+  notification and notification history.
+- Notification settings panel with a test button and delivery history.
+
+### Notes
+
+- A target being reached is a statement about the rate, not about money. It
+  never marks a tranche completed, and every message says the app has not
+  converted anything.
+- A stale rate cannot confirm a target, and does not advance the confirmation
+  count.
+
 ## [0.3.0] - 2026-08-01
 
 Strategies, tranches and the dashboard.

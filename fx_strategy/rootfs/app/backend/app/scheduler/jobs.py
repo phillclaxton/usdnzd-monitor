@@ -26,7 +26,9 @@ from app.services.audit import new_correlation_id
 
 log = get_logger(__name__)
 
-JobCallback = Callable[[AsyncSession, Settings, rate_service.RefreshOutcome], Awaitable[None]]
+#: A post-refresh consumer. Its return value is ignored; the scheduler only
+#: needs to know that it completed.
+JobCallback = Callable[[AsyncSession, Settings, rate_service.RefreshOutcome], Awaitable[Any]]
 
 
 def is_market_active(settings: Settings) -> bool:

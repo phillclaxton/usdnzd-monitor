@@ -4,6 +4,14 @@ Importing this package registers every model with :class:`app.database.Base`,
 which Alembic's autogenerate relies on.
 """
 
+from app.models.alert import (
+    AlertRule,
+    AlertRuleType,
+    NotificationLog,
+    Severity,
+    TargetState,
+    TrancheAlertState,
+)
 from app.models.audit import AuditEvent, AuditEventType
 from app.models.rate import (
     FeeModel,
@@ -24,6 +32,8 @@ from app.models.strategy import (
 )
 
 __all__ = [
+    "AlertRule",
+    "AlertRuleType",
     "AppSetting",
     "AuditEvent",
     "AuditEventType",
@@ -31,12 +41,16 @@ __all__ = [
     "DeadlineRequirement",
     "FeeModel",
     "ManualRate",
+    "NotificationLog",
     "ProviderStatus",
     "RateAggregate",
     "RateSample",
     "RecordSource",
+    "Severity",
     "Strategy",
     "StrategyStatus",
+    "TargetState",
     "Tranche",
+    "TrancheAlertState",
     "TrancheStatus",
 ]
