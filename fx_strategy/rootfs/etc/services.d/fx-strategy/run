@@ -1,0 +1,43 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start the FX Strategy Manager backend.
+# ==============================================================================
+set -e
+
+export FX_LOG_LEVEL="$(bashio::config 'log_level' 'info')"
+export FX_SIMULATION_MODE="$(bashio::config 'simulation_mode' 'false')"
+export FX_DATA_DIR="/data"
+export FX_APP_CONFIG_DIR="/config"
+export FX_INGRESS_ENTRY="$(bashio::addon.ingress_entry || true)"
+
+# MQTT: prefer explicit add-on options, fall back to the Supervisor service.
+if bashio::config.has_value 'mqtt_host'; then
+    export FX_MQTT_HOST="$(bashio::config 'mqtt_host')"
+    export FX_MQTT_PORT="$(bashio::config 'mqtt_port' '1883')"
+    export FX_MQTT_USERNAME="$(bashio::config 'mqtt_username' '')"
+    export FX_MQTT_PASSWORD="$(bashio::config 'mqtt_password' '')"
+    bashio::log.info "Using MQTT broker from add-on configuration."
+elif bashio::services.available 'mqtt'; then
+    export FX_MQTT_HOST="$(bashio::services 'mqtt' 'host')"
+    export FX_MQTT_PORT="$(bashio::services 'mqtt' 'port')"
+    export FX_MQTT_USERNAME="$(bashio::services 'mqtt' 'username')"
+    export FX_MQTT_PASSWORD="$(bashio::services 'mqtt' 'password')"
+    bashio::log.info "Using MQTT broker supplied by the Supervisor."
+else
+    bashio::log.notice "No MQTT broker configured; Home Assistant entity publication is disabled."
+fi
+
+cd /app/backend || bashio::exit.nok "Backend directory is missing."
+
+bashio::log.info "Applying database migrations..."
+if ! alembic upgrade head; then
+    bashio::exit.nok "Database migration failed; refusing to start."
+fi
+
+bashio::log.info "Starting FX Strategy Manager on port 8099..."
+exec python3 -m uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8099 \
+    --proxy-headers \
+    --forwarded-allow-ips '*' \
+    --no-access-log

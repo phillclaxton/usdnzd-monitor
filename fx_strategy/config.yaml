@@ -1,0 +1,40 @@
+---
+name: FX Strategy Manager
+version: "0.1.0"
+slug: fx_strategy
+description: Monitor and manage staged foreign exchange conversion strategies
+url: https://github.com/phillclaxton/usdnzd-monitor/tree/main/fx_strategy
+# The manifest uses the current Home Assistant app schema. `app_config` in the
+# map section is the current name for the directory previously called
+# `addon_config`, which requires Supervisor 2024.x or newer.
+homeassistant: 2024.4.0
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+ingress_stream: true
+panel_icon: mdi:currency-usd
+panel_title: FX Strategy
+homeassistant_api: true
+hassio_api: true
+auth_api: true
+services:
+  - mqtt:want
+map:
+  - type: app_config
+    read_only: false
+options:
+  log_level: info
+  simulation_mode: false
+schema:
+  log_level: list(trace|debug|info|warning|error)
+  simulation_mode: bool
+  mqtt_host: str?
+  mqtt_port: port?
+  mqtt_username: str?
+  mqtt_password: password?

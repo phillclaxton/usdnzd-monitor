@@ -1,0 +1,10 @@
+---
+# Debian trixie base images ship Python 3.13, which this app targets.
+build_from:
+  amd64: ghcr.io/home-assistant/amd64-base-debian:trixie
+  aarch64: ghcr.io/home-assistant/aarch64-base-debian:trixie
+  armv7: ghcr.io/home-assistant/armv7-base-debian:trixie
+labels:
+  org.opencontainers.image.title: FX Strategy Manager
+  org.opencontainers.image.source: https://github.com/phillclaxton/usdnzd-monitor
+  org.opencontainers.image.licenses: MIT

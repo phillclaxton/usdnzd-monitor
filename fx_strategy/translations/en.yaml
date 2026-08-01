@@ -1,0 +1,28 @@
+---
+configuration:
+  log_level:
+    name: Log level
+    description: >-
+      How much detail the add-on writes to its log. Use debug only while
+      investigating a problem; trace can be very noisy.
+  simulation_mode:
+    name: Start in simulation mode
+    description: >-
+      Run with simulated rates and a persistent warning banner. No live
+      financial decision should be based on a simulated screen.
+  mqtt_host:
+    name: MQTT host
+    description: >-
+      Optional. Leave empty to use the MQTT broker Home Assistant already
+      provides. Without a broker the app still works, but it publishes fewer
+      Home Assistant entities.
+  mqtt_port:
+    name: MQTT port
+    description: Broker port, usually 1883.
+  mqtt_username:
+    name: MQTT username
+    description: Optional username for the broker.
+  mqtt_password:
+    name: MQTT password
+    description: Optional password for the broker. Never written to the log.
+network: {}
