@@ -147,3 +147,77 @@ export interface AuditEvent {
   message: string;
   correlation_id: string | null;
 }
+
+export interface RateChanges {
+  one_hour: string | null;
+  twenty_four_hours: string | null;
+  seven_days: string | null;
+  thirty_days: string | null;
+}
+
+export type RateStatus = 'live' | 'delayed' | 'stale' | 'unavailable';
+
+export interface CurrentRate {
+  source_currency: string;
+  target_currency: string;
+  rate: string | null;
+  status: RateStatus;
+  provider: string;
+  quote_type: string | null;
+  quote_label: string | null;
+  provider_timestamp: string | null;
+  retrieved_at: string | null;
+  age_seconds: number | null;
+  stale_after_seconds: number;
+  changes: RateChanges;
+  high_24h: string | null;
+  low_24h: string | null;
+  high_6m: string | null;
+  low_6m: string | null;
+  disagreement_warning: string | null;
+  message: string | null;
+}
+
+export interface RatePoint {
+  timestamp: string;
+  rate: string;
+  provider: string;
+}
+
+export interface RateHistory {
+  source_currency: string;
+  target_currency: string;
+  start: string;
+  end: string;
+  resolution: 'sample' | 'hour' | 'day';
+  points: RatePoint[];
+  high: string | null;
+  low: string | null;
+  average: string | null;
+  truncated: boolean;
+}
+
+export interface RefreshResult {
+  succeeded: boolean;
+  provider: string;
+  attempted: string[];
+  errors: Record<string, string>;
+  rate: string | null;
+  disagreement: string | null;
+  disagreement_exceeded: boolean;
+  comparison: Record<string, string>;
+}
+
+export interface ProviderStatus {
+  provider: string;
+  display_name: string;
+  configured: boolean;
+  healthy: boolean;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  last_latency_ms: number | null;
+  retry_after: string | null;
+  reason: string;
+}

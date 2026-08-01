@@ -64,11 +64,12 @@ class DecimalText(TypeDecorator[Decimal]):
     impl = String
     cache_ok = True
 
-    def __init__(self, scale: int = MONEY_PLACES, **kwargs: Any) -> None:
+    def __init__(self, scale: int = MONEY_PLACES, length: int | None = None, **kwargs: Any) -> None:
         self.scale = scale
         # 24 integer digits is far beyond any plausible balance and keeps the
-        # stored representation bounded.
-        super().__init__(length=24 + scale + 2, **kwargs)
+        # stored representation bounded. `length` is accepted so that the value
+        # Alembic renders into a migration round-trips back into this type.
+        super().__init__(length=length or (24 + scale + 2), **kwargs)
 
     @property
     def _quant(self) -> Decimal:
@@ -90,8 +91,8 @@ class RateText(DecimalText):
 
     cache_ok = True
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(scale=RATE_PLACES, **kwargs)
+    def __init__(self, length: int | None = None, **kwargs: Any) -> None:
+        super().__init__(scale=RATE_PLACES, length=length, **kwargs)
 
 
 class MoneyText(DecimalText):
@@ -99,8 +100,8 @@ class MoneyText(DecimalText):
 
     cache_ok = True
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(scale=MONEY_PLACES, **kwargs)
+    def __init__(self, length: int | None = None, **kwargs: Any) -> None:
+        super().__init__(scale=MONEY_PLACES, length=length, **kwargs)
 
 
 class UTCDateTime(TypeDecorator[datetime]):

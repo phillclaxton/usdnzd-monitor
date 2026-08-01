@@ -82,6 +82,9 @@ async def record(
         correlation_id=current_correlation_id(),
     )
     session.add(event)
+    # Sessions run with autoflush off, so the event is flushed explicitly to
+    # make it visible to reads later in the same transaction.
+    await session.flush()
     return event
 
 

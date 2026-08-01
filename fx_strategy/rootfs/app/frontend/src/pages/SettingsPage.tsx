@@ -1,7 +1,10 @@
 import { useState } from 'react';
 
-import { Banner, Card, Field, Loading } from '@/components/ui';
+import { Banner, Card, Field, Loading, Tag } from '@/components/ui';
+import { useProviderStatus } from '@/hooks/useRates';
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
+import { formatDateTime } from '@/lib/datetime';
+import type { ProviderSettings, Settings } from '@/types';
 
 const TIMEZONES = [
   'Pacific/Auckland',
@@ -11,18 +14,28 @@ const TIMEZONES = [
   'UTC',
 ];
 
+const PROVIDER_CHOICES = [
+  { value: 'manual', label: 'Manual entry only' },
+  { value: 'wise', label: 'Wise' },
+  { value: 'generic', label: 'Generic API provider' },
+];
+
 export default function SettingsPage() {
   const settings = useSettings();
+  const providers = useProviderStatus();
   const update = useUpdateSettings();
   const [saved, setSaved] = useState(false);
 
   if (settings.isLoading || !settings.data) return <Loading label="Loading settings…" />;
-  const { general, formatting } = settings.data;
+  const { general, formatting, providers: providerSettings, notifications } = settings.data;
 
-  const save = (patch: Parameters<typeof update.mutate>[0]) => {
+  const save = (patch: Partial<Settings>) => {
     setSaved(false);
     update.mutate(patch, { onSuccess: () => setSaved(true) });
   };
+
+  const saveProviders = (patch: Partial<ProviderSettings>) =>
+    save({ providers: { ...providerSettings, ...patch } });
 
   return (
     <>
@@ -72,10 +85,7 @@ export default function SettingsPage() {
             value={formatting.currency_decimal_places}
             onChange={(event) =>
               save({
-                formatting: {
-                  ...formatting,
-                  currency_decimal_places: Number(event.target.value),
-                },
+                formatting: { ...formatting, currency_decimal_places: Number(event.target.value) },
               })
             }
           />
@@ -90,6 +100,143 @@ export default function SettingsPage() {
             onChange={(event) =>
               save({
                 formatting: { ...formatting, rate_decimal_places: Number(event.target.value) },
+              })
+            }
+          />
+        </Field>
+      </Card>
+
+      <Card
+        title="Rate providers"
+        subtitle="The primary provider is tried first, then the secondary, then the manual fallback."
+      >
+        <Field label="Primary provider" htmlFor="primary">
+          <select
+            id="primary"
+            value={providerSettings.primary}
+            onChange={(event) => saveProviders({ primary: event.target.value })}
+          >
+            {PROVIDER_CHOICES.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Secondary provider" hint="used for fallback and disagreement checks" htmlFor="secondary">
+          <select
+            id="secondary"
+            value={providerSettings.secondary ?? ''}
+            onChange={(event) => saveProviders({ secondary: event.target.value || null })}
+          >
+            <option value="">None</option>
+            {PROVIDER_CHOICES.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field
+          label="Poll interval while the market is active (seconds)"
+          hint="minimum 60; respect your provider's plan"
+          htmlFor="poll-active"
+        >
+          <input
+            id="poll-active"
+            type="number"
+            min={60}
+            value={providerSettings.poll_seconds_active}
+            onChange={(event) =>
+              saveProviders({ poll_seconds_active: Number(event.target.value) })
+            }
+          />
+        </Field>
+        <Field label="Treat a rate as stale after (seconds)" htmlFor="stale">
+          <input
+            id="stale"
+            type="number"
+            min={60}
+            value={providerSettings.stale_after_seconds}
+            onChange={(event) =>
+              saveProviders({ stale_after_seconds: Number(event.target.value) })
+            }
+          />
+        </Field>
+        <Field
+          label="Provider disagreement threshold"
+          hint="a relative difference above this shows a warning and withholds target confirmation"
+          htmlFor="disagreement"
+        >
+          <input
+            id="disagreement"
+            type="text"
+            inputMode="decimal"
+            value={providerSettings.disagreement_threshold}
+            onChange={(event) =>
+              saveProviders({ disagreement_threshold: event.target.value })
+            }
+          />
+        </Field>
+      </Card>
+
+      <Card title="Provider status">
+        {providers.isLoading && <Loading />}
+        <div className="fx-table-wrap">
+          <table className="fx-table">
+            <thead>
+              <tr>
+                <th className="fx-left">Provider</th>
+                <th className="fx-left">State</th>
+                <th>Failures</th>
+                <th className="fx-left">Last success</th>
+                <th className="fx-left">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(providers.data ?? []).map((provider) => (
+                <tr key={provider.provider}>
+                  <td className="fx-left">{provider.display_name || provider.provider}</td>
+                  <td className="fx-left">
+                    {!provider.configured ? (
+                      <Tag quality="plain">Not configured</Tag>
+                    ) : provider.healthy ? (
+                      <Tag quality="actual">Healthy</Tag>
+                    ) : (
+                      <Tag quality="warning">Failing</Tag>
+                    )}
+                  </td>
+                  <td>{provider.consecutive_failures}</td>
+                  <td className="fx-left">
+                    {formatDateTime(provider.last_success_at, general.timezone)}
+                  </td>
+                  <td className="fx-left">{provider.reason || provider.last_error || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="Notifications">
+        <Field
+          label="Home Assistant notify services"
+          hint="one per line, for example notify.mobile_app_phills_iphone"
+          htmlFor="notify"
+        >
+          <textarea
+            id="notify"
+            rows={3}
+            defaultValue={notifications.services.join('\n')}
+            onBlur={(event) =>
+              save({
+                notifications: {
+                  ...notifications,
+                  services: event.target.value
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean),
+                },
               })
             }
           />
