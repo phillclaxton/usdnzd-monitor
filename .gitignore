@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.vite/
+playwright-report/
+test-results/
+
+# Local data — never commit a database or a secrets file
+*.db
+*.db-wal
+*.db-shm
+secrets.json
+secret.key
+/data/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

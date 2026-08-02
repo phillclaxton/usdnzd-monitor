@@ -1,0 +1,17 @@
+# Runtime dependencies for the add-on image.
+# Kept as a plain requirements file so the Docker build does not need a
+# resolver; `pyproject.toml` remains the source of truth for version ranges.
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
+sqlalchemy[asyncio]==2.0.51
+aiosqlite==0.22.1
+alembic==1.18.5
+apscheduler==3.11.3
+httpx==0.28.1
+tenacity==9.1.4
+structlog==26.1.0
+python-multipart==0.0.32
+aiomqtt==2.5.1
+cryptography==50.0.0

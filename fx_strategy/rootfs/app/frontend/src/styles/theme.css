@@ -1,0 +1,85 @@
+/*
+ * Home Assistant-compatible visual language.
+ *
+ * Colours are CSS variables so the app follows the surrounding Home Assistant
+ * theme where those variables are inherited through Ingress, and falls back to
+ * its own light/dark palette otherwise. Status is never communicated by colour
+ * alone: every state also carries a label and an icon glyph.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --fx-font: var(--paper-font-body1_-_font-family, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, sans-serif);
+  --fx-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --fx-bg: var(--primary-background-color, #f5f5f5);
+  --fx-surface: var(--card-background-color, #ffffff);
+  --fx-surface-raised: var(--ha-card-background, #ffffff);
+  --fx-border: var(--divider-color, #e0e0e0);
+  --fx-text: var(--primary-text-color, #1c1c1c);
+  --fx-text-muted: var(--secondary-text-color, #5c5c5c);
+  --fx-accent: var(--primary-color, #03a9f4);
+  --fx-accent-contrast: var(--text-primary-color, #ffffff);
+
+  /* Status colours are paired with labels and glyphs, never used alone. */
+  --fx-positive: var(--success-color, #0f7b3f);
+  --fx-caution: var(--warning-color, #9a6400);
+  --fx-negative: var(--error-color, #b3261e);
+  --fx-neutral: #5c6bc0;
+
+  --fx-positive-bg: color-mix(in srgb, var(--fx-positive) 12%, transparent);
+  --fx-caution-bg: color-mix(in srgb, var(--fx-caution) 14%, transparent);
+  --fx-negative-bg: color-mix(in srgb, var(--fx-negative) 12%, transparent);
+  --fx-neutral-bg: color-mix(in srgb, var(--fx-neutral) 12%, transparent);
+
+  --fx-radius: 12px;
+  --fx-radius-sm: 8px;
+  --fx-gap: 16px;
+  --fx-gap-sm: 8px;
+  --fx-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --fx-focus: 0 0 0 3px color-mix(in srgb, var(--fx-accent) 45%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fx-bg: var(--primary-background-color, #111213);
+    --fx-surface: var(--card-background-color, #1c1e21);
+    --fx-surface-raised: var(--ha-card-background, #24262a);
+    --fx-border: var(--divider-color, #33363b);
+    --fx-text: var(--primary-text-color, #e9eaec);
+    --fx-text-muted: var(--secondary-text-color, #a4a8ae);
+    --fx-positive: var(--success-color, #4ecf82);
+    --fx-caution: var(--warning-color, #f0b429);
+    --fx-negative: var(--error-color, #ff6b60);
+    --fx-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Explicit override, so the app can be forced either way for screenshots. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --fx-bg: #111213;
+  --fx-surface: #1c1e21;
+  --fx-surface-raised: #24262a;
+  --fx-border: #33363b;
+  --fx-text: #e9eaec;
+  --fx-text-muted: #a4a8ae;
+  --fx-positive: #4ecf82;
+  --fx-caution: #f0b429;
+  --fx-negative: #ff6b60;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --fx-bg: #f5f5f5;
+  --fx-surface: #ffffff;
+  --fx-surface-raised: #ffffff;
+  --fx-border: #e0e0e0;
+  --fx-text: #1c1c1c;
+  --fx-text-muted: #5c5c5c;
+  --fx-positive: #0f7b3f;
+  --fx-caution: #9a6400;
+  --fx-negative: #b3261e;
+}
