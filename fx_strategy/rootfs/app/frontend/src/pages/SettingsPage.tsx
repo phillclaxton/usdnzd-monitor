@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import NotificationSettingsPanel from '@/components/NotificationSettings';
+import GenericProviderSettingsPanel from '@/components/GenericProviderSettings';
 import WiseSettingsPanel from '@/components/WiseSettings';
 import { Banner, Card, Field, Loading, Tag } from '@/components/ui';
 import { useProviderStatus } from '@/hooks/useRates';
@@ -219,6 +220,8 @@ export default function SettingsPage() {
           </table>
         </div>
       </Card>
+
+      <GenericProviderSettingsPanel />
 
       <WiseSettingsPanel />
 

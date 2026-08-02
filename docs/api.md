@@ -26,6 +26,22 @@ figure that cannot be calculated is `null` — never `0`.
 | `GET` | `/rates/export?range=30d` | CSV in the format the importer accepts |
 | `GET` | `/rates/providers` | Per-provider health and backoff state |
 
+## Provider configuration
+
+`/rates/providers` reports health; these configure the generic provider.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/providers/presets` | Known vendors and their defaults |
+| `GET` | `/providers/generic` | Stored configuration plus its status |
+| `PUT` | `/providers/generic` | Update any field; `api_key` is write-only |
+| `POST` | `/providers/generic/preset/{key}` | Apply a preset's defaults |
+| `POST` | `/providers/generic/test` | One live call; failures come back as a message, not an error status |
+| `DELETE` | `/providers/generic/credentials` | Remove the stored key |
+
+The API key is never returned. Responses carry `key_hint` — the last four
+characters — and nothing else.
+
 ## Strategies
 
 | Method | Path | Purpose |

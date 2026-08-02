@@ -37,6 +37,17 @@ labels it as such everywhere. Request a quote for a figure that includes fees.
 
 ## Generic API provider
 
+Configured in **Settings → Generic API provider**, below the provider list.
+
+1. Pick a **preset**, or leave it on *Custom* and fill the fields in yourself.
+2. Enter the **API key** if the authentication style needs one. It is stored
+   encrypted outside the database and is never shown again — only the last four
+   characters.
+3. Press **Test**. One real call is made and the result is reported as a rate or
+   as the precise reason it failed.
+4. Press **Enable**, then choose the provider as **primary** or **secondary** in
+   the provider list above. Enabling alone does not select it.
+
 Every part of the request and the response mapping is configuration:
 
 | Setting | Meaning | Example |
