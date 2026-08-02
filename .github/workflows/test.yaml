@@ -144,6 +144,45 @@ jobs:
           path: ${{ env.FRONTEND }}/playwright-report
           if-no-files-found: ignore
 
+  image:
+    name: App image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Exactly the arguments the Supervisor passes, so a Dockerfile that only
+      # builds by hand cannot pass here. Nothing built this image before, which
+      # is how a BUILD_FROM declared after the first FROM — and therefore out of
+      # scope for the FROM that used it — reached a release.
+      - name: Build as the Supervisor does
+        uses: docker/build-push-action@v6
+        with:
+          context: fx_strategy
+          file: fx_strategy/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: false
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:trixie
+            BUILD_ARCH=amd64
+            BUILD_VERSION=0.0.0-ci
+
+      # Without build.yaml the Supervisor passes no BUILD_FROM at all, so the
+      # Dockerfile's own default has to resolve to a real image on its own.
+      - name: Build with the Dockerfile's own default base
+        uses: docker/build-push-action@v6
+        with:
+          context: fx_strategy
+          file: fx_strategy/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: false
+          build-args: |
+            BUILD_ARCH=amd64
+            BUILD_VERSION=0.0.0-ci
+
   manifest:
     name: App manifest
     runs-on: ubuntu-latest

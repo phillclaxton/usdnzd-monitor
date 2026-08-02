@@ -14,6 +14,31 @@ kept here so the reasoning is not lost.
 | `startup: application`, `boot: auto`, `init: false`, `ingress: true` | All still current. | Used as specified, plus `ingress_stream: true` so the WebSocket event stream passes through Ingress cleanly. |
 | MQTT | `services: - mqtt:want` lets the Supervisor hand over broker credentials when a broker exists, without making one mandatory. | Declared `mqtt:want`; the app degrades to REST-only entity publication when no broker is present. |
 
+## Building the image
+
+The Supervisor has moved app builds to Docker BuildKit and now logs
+`uses build.yaml which is deprecated. Move build parameters into the Dockerfile
+directly.` Checked against the Supervisor source (`supervisor/apps/build.py`),
+the current behaviour is:
+
+- `BUILD_VERSION` and `BUILD_ARCH` are **always** passed as build arguments.
+- `BUILD_FROM` is passed **only** when `build.yaml` supplies it. Without
+  `build.yaml`, `base_image` is `None` and the Dockerfile's own default is what
+  resolves.
+
+`build.yaml` is kept for now, because it is the only thing that selects
+`ghcr.io/home-assistant/armv7-base-debian:trixie`: the new multi-platform
+manifest `ghcr.io/home-assistant/base-debian:trixie` publishes linux/amd64 and
+linux/arm64 only. Dropping `build.yaml` would silently drop armv7, which
+`config.yaml` declares. That multi-platform manifest is used as the Dockerfile's
+default so a plain `docker build` still works on a development machine.
+
+Build arguments are declared **before the first `FROM`**. Only an `ARG` in that
+global scope can be used in a `FROM` instruction; one declared lower down
+belongs to the stage above it, and the base image name then resolves to an empty
+string. A global `ARG` is not inherited by a stage either, so `BUILD_ARCH` and
+`BUILD_VERSION` are re-declared without values inside the stage that uses them.
+
 ## Ingress
 
 The Supervisor forwards the mount prefix in the `X-Ingress-Path` header. The

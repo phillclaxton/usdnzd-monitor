@@ -1,4 +1,23 @@
 # syntax=docker/dockerfile:1
+
+# ---------------------------------------------------------------------------
+# Build arguments, declared in the global scope.
+#
+# Only an ARG declared before the *first* FROM can be used in a FROM
+# instruction. Declaring BUILD_FROM further down scopes it to whichever stage
+# precedes it, and the base image name then resolves to an empty string:
+#
+#   ERROR: failed to solve: base name (${BUILD_FROM}) should not be blank
+#
+# The Supervisor always supplies BUILD_ARCH and BUILD_VERSION, and supplies
+# BUILD_FROM from build.yaml. The default below is only a fallback for a plain
+# `docker build` on a development machine; it is the multi-platform manifest,
+# which covers amd64 and arm64 but not armv7. armv7 comes from build.yaml.
+# ---------------------------------------------------------------------------
+ARG BUILD_FROM=ghcr.io/home-assistant/base-debian:trixie
+ARG BUILD_ARCH=amd64
+ARG BUILD_VERSION=0.0.0
+
 # ---------------------------------------------------------------------------
 # Stage 1: build the frontend bundle.
 # ---------------------------------------------------------------------------
@@ -11,13 +30,14 @@ COPY rootfs/app/frontend/ ./
 RUN npm run build
 
 # ---------------------------------------------------------------------------
-# Stage 2: the add-on image itself.
+# Stage 2: the app image itself.
 # ---------------------------------------------------------------------------
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:trixie
 FROM ${BUILD_FROM}
 
-ARG BUILD_ARCH=amd64
-ARG BUILD_VERSION=0.0.0
+# A global ARG is not inherited by a build stage: re-declaring it without a
+# value pulls in the global value (or its default).
+ARG BUILD_ARCH
+ARG BUILD_VERSION
 
 ENV LANG=C.UTF-8 \
     PYTHONUNBUFFERED=1 \

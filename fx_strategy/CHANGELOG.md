@@ -4,6 +4,40 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-02
+
+Fixes the app image failing to build on a Home Assistant server.
+
+### Fixed
+
+- `ARG BUILD_FROM` was declared after the first `FROM`, which scopes it to the
+  frontend stage rather than the global scope. Only an `ARG` declared before
+  any `FROM` can be used in a `FROM` instruction, so the base image name
+  resolved to an empty string and the build stopped with
+  `base name (${BUILD_FROM}) should not be blank`. The build arguments are now
+  declared at the top of the Dockerfile and re-declared inside the stage that
+  uses them.
+- The Dockerfile's fallback base is now the multi-platform
+  `ghcr.io/home-assistant/base-debian:trixie`, so a plain `docker build` works
+  without `build.yaml`. The Supervisor still supplies the exact per-architecture
+  image from `build.yaml`, which is what keeps armv7 — absent from that
+  manifest — building.
+
+### Added
+
+- A CI job that builds the app image with exactly the arguments the Supervisor
+  passes, and again with no `BUILD_FROM` so the Dockerfile's own default has to
+  resolve on its own. Nothing built the image before, which is how this reached
+  a release.
+- `.dockerignore`, so a local build no longer copies a developer's virtualenv,
+  `node_modules` or previous build output into the image.
+
+### Notes
+
+- The Supervisor logs a deprecation warning for `build.yaml`. It is still read,
+  and it is what supplies the armv7 base image, so it stays for now. See
+  `docs/upstream-notes.md`.
+
 ## [1.0.0] - 2026-08-01
 
 First complete release. Everything the specification describes is implemented,
