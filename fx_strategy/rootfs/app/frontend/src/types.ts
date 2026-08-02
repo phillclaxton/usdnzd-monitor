@@ -672,3 +672,27 @@ export interface Diagnostics {
   generated_at: string;
   note: string;
 }
+
+export interface ProviderPreset {
+  key: string;
+  display_name: string;
+  base_url: string;
+  requires_key: boolean;
+  auth_style: string;
+  notes: string;
+}
+
+export interface GenericProviderStatus {
+  enabled: boolean;
+  configured: boolean;
+  display_name: string;
+  preset: string;
+  base_url: string;
+  supports_history: boolean;
+  key_required: boolean;
+  /** Last four characters only; the key itself is never returned. */
+  key_hint: string;
+  message: string;
+  rate: string | null;
+  latency_ms: number | null;
+}

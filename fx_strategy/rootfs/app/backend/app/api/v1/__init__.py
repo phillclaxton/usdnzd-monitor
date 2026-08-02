@@ -9,6 +9,7 @@ from app.api.v1 import (
     conversions,
     health,
     home_assistant,
+    providers,
     rates,
     settings,
     strategies,
@@ -20,6 +21,7 @@ from app.api.v1 import (
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
 api_router.include_router(rates.router)
+api_router.include_router(providers.router)
 api_router.include_router(strategies.router)
 api_router.include_router(tranches.router)
 api_router.include_router(conversions.router)

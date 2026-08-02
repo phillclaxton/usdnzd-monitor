@@ -4,6 +4,37 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-02
+
+The generic API provider can now be configured from the interface.
+
+### Added
+
+- **Settings → Generic API provider**: a preset picker covering the five known
+  vendors, every request and response-mapping field, the API key, and a **Test**
+  button that makes one live call and reports either the rate it received or the
+  precise reason it failed.
+- `GET /providers/presets`, `GET`/`PUT /providers/generic`,
+  `POST /providers/generic/preset/{key}`, `POST /providers/generic/test` and
+  `DELETE /providers/generic/credentials`.
+- Presets are applied server-side, so their defaults have one definition — the
+  same one the provider tests run against.
+
+### Fixed
+
+- The generic provider was selectable as primary or secondary but there was no
+  way to configure it: the provider, its presets and its reserved credential
+  slot all existed, with nothing connecting them to the interface. Choosing it
+  produced a provider that could not start.
+
+### Notes
+
+- The API key goes to the encrypted secret store. It is never returned by any
+  endpoint, never written to the settings document, and the audit trail records
+  only that it changed. Tests assert each of those.
+- Enabling the provider does not select it; it still has to be chosen as the
+  primary or secondary provider, and the panel says so.
+
 ## [1.0.1] - 2026-08-02
 
 Fixes the app image failing to build on a Home Assistant server.
