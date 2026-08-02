@@ -1,0 +1,33 @@
+# The build context is the app directory. On a Home Assistant server the
+# repository is freshly cloned so most of this is absent, but a local
+# `docker build` would otherwise copy a developer's virtualenv, node_modules
+# and previous build output straight into the image.
+
+# Python
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/coverage.xml
+**/htmlcov/
+
+# Node — dependencies are installed inside the build, and dist is produced there
+**/node_modules/
+**/dist/
+**/.vite/
+**/playwright-report/
+**/test-results/
+
+# Local data: never copy a database or a secrets file into an image
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/secrets.json
+**/secret.key
+
+# Not needed at runtime
+**/.git/
+**/.DS_Store
