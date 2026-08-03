@@ -4,6 +4,56 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-03
+
+Debts and conversion priorities.
+
+### Added
+
+- **Obligations**: record debts, loans, offset requirements and other NZD
+  commitments that may be funded by converting USD. Each carries its own
+  interest basis, due date, priority, relationship importance, target rate and
+  maximum acceptable wait.
+- **Break-even in both directions**: how many days a given rate improvement
+  pays for, and what rate would repay a given wait. Net benefit is quoted at 7,
+  14, 30, 60 and 90 days.
+- **Two priority scores**, because they genuinely differ. Financial priority
+  counts the due date, interest cost, size and deadline; overall priority adds
+  the priority you set and the non-financial importance. An interest-free family
+  loan is financially unhurried and may still be the first thing to fund. Every
+  component of the score is shown.
+- **Portfolio view**: totals, cost of waiting, amounts due within 7 and 30 days,
+  the next obligation to fund, a weighted break-even rate across the book, and
+  the maximum rational waiting period.
+- **Conversion allocation**: three standard plans plus a custom scenario at any
+  amount or hypothetical rate. An obligation that refuses partial payment is
+  skipped rather than part-funded.
+- **Home Assistant entities**: ten portfolio sensors, and a device per
+  obligation carrying eight sensors each. An obligation called "Meika repayment"
+  becomes `sensor.meika_repayment_remaining` and so on.
+- **Seven notification triggers**, each stating the amounts in full.
+- A **Debts** page in the app: summary, priority table, per-obligation detail
+  with the full working, allocation planner and three charts.
+- `docs/obligations.md`, and `docs/examples/lovelace-obligations.yaml` built
+  entirely from native Home Assistant cards.
+
+### Notes
+
+- Nothing here pays, converts or transfers money. `POST /obligations/pay`
+  returns an explicit refusal rather than a 404.
+- A zero-interest obligation has no financial break-even period. It is reported
+  as unknown, not as zero or infinity — the concept does not apply.
+- A stale rate never supports a recommendation to wait, and the entities publish
+  an uncalculable figure as unknown rather than as zero.
+- An annual rate above 1 is refused through the API as a likely percentage:
+  6.04 instead of 0.0604 would inflate every figure a hundredfold.
+
+### Fixed
+
+- The structural test asserting no conversion endpoint exists was vacuous:
+  `app.routes` returns included routers as opaque objects, so it inspected seven
+  paths rather than 110 and would have passed whatever the API exposed.
+
 ## [1.1.0] - 2026-08-02
 
 The generic API provider can now be configured from the interface.

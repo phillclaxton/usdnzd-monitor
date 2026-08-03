@@ -1,0 +1,195 @@
+# Debts and conversion priorities — Lovelace dashboard
+#
+# Every card here is a native Home Assistant card. No custom cards are needed.
+#
+# The entity IDs below assume two obligations named "Meika repayment" and
+# "Mortgage offset". Yours are named after your own obligations: an obligation
+# called "Car loan" produces sensor.car_loan_remaining and so on. Check
+# Settings -> Devices & services -> entities if you are unsure.
+#
+# Paste into a dashboard in raw configuration editor mode, or add the cards one
+# at a time through the UI.
+
+views:
+  - title: Debts
+    path: debts
+    icon: mdi:file-document-multiple
+    cards:
+      # ---------------------------------------------------------------------
+      # Obligations summary
+      # ---------------------------------------------------------------------
+      - type: entities
+        title: Obligations summary
+        show_header_toggle: false
+        entities:
+          - entity: sensor.fx_total_active_obligations_nzd
+            name: Total outstanding
+          - entity: sensor.fx_total_usd_required
+            name: USD required at the current rate
+          - entity: sensor.fx_total_monthly_waiting_cost
+            name: Cost of waiting, per month
+          - entity: sensor.fx_next_conversion_amount_usd
+            name: Recommended conversion
+          - entity: sensor.fx_next_obligation
+            name: Fund next
+          - entity: sensor.fx_debt_strategy_status
+            name: Status
+        footer:
+          type: graph
+          entity: sensor.fx_total_daily_waiting_cost
+          hours_to_show: 168
+
+      # ---------------------------------------------------------------------
+      # Priority table
+      #
+      # A markdown card is used rather than a third-party table card: it reads
+      # the same attributes and needs nothing installed.
+      # ---------------------------------------------------------------------
+      - type: markdown
+        title: Priority
+        content: >-
+          {% set obligations = [
+            'sensor.meika_repayment_remaining',
+            'sensor.mortgage_offset_remaining'
+          ] %}
+
+          | Obligation | Remaining | Daily cost | Due | Priority | Break-even | Recommendation |
+          |---|---:|---:|---|---|---:|---|
+
+          {% for entity in obligations -%}
+          {% set a = state_attr(entity, 'obligation_id') %}
+          {% set base = entity | replace('_remaining', '') -%}
+          | {{ state_attr(entity, 'obligation_type') | replace('_', ' ') | title }}
+          | NZ${{ states(entity) | float(0) | round(2) }}
+          | {% if state_attr(entity, 'has_interest_cost') %}NZ${{ states(base ~ '_daily_waiting_cost') | float(0) | round(2) }}{% else %}—{% endif %}
+          | {{ state_attr(entity, 'due_date') or '—' }}
+          | {{ state_attr(entity, 'priority') | title }}
+          | {{ states(base ~ '_break_even_days') if states(base ~ '_break_even_days') not in ['unknown', 'unavailable'] else '—' }}
+          | {{ states(base ~ '_recommendation') | replace('_', ' ') | title }} |
+          {% endfor %}
+
+          _Estimates from an indicative market rate. Decision support, not
+          financial advice._
+
+      # ---------------------------------------------------------------------
+      # Obligation detail
+      #
+      # One card per obligation. Duplicate and change the entity prefix.
+      # ---------------------------------------------------------------------
+      - type: entities
+        title: Meika repayment
+        show_header_toggle: false
+        entities:
+          - entity: sensor.meika_repayment_remaining
+            name: Remaining
+          - entity: sensor.meika_repayment_usd_required
+            name: USD required now
+          - entity: sensor.meika_repayment_daily_waiting_cost
+            name: Daily cost of waiting
+          - entity: sensor.meika_repayment_break_even_days
+            name: Break-even at +0.01
+          - entity: sensor.meika_repayment_break_even_rate_30_days
+            name: Rate needed to justify 30 days
+          - entity: sensor.meika_repayment_recommendation
+            name: Recommended action
+          - entity: sensor.meika_repayment_priority_rank
+            name: Overall priority rank
+          - entity: binary_sensor.meika_repayment_overdue
+            name: Overdue
+
+      - type: markdown
+        title: Why
+        content: >-
+          {{ state_attr('sensor.meika_repayment_recommendation',
+          'recommendation_reason') }}
+
+          {% set c = state_attr('sensor.meika_repayment_recommendation',
+          'priority_components') %}
+          {% if c %}
+          **Priority components** — due urgency {{ c.due_urgency }}, your
+          priority {{ c.user_priority }}, relationship {{ c.relationship }},
+          interest cost {{ c.interest_cost }}, size {{ c.size }}.
+          {% endif %}
+
+      # ---------------------------------------------------------------------
+      # Conversion allocation
+      # ---------------------------------------------------------------------
+      - type: entities
+        title: Next conversion
+        show_header_toggle: false
+        entities:
+          - entity: sensor.fx_next_conversion_amount_usd
+            name: Convert
+          - entity: sensor.fx_next_conversion_amount_nzd
+            name: To obtain
+          - entity: sensor.fx_next_obligation
+            name: For
+          - entity: sensor.fx_weighted_break_even_rate
+            name: Rate that repays 30 days of waiting
+          - entity: sensor.fx_max_rational_wait_days
+            name: Maximum rational wait
+        footer:
+          type: buttons
+          entities:
+            - entity: button.fx_refresh_rate
+              name: Refresh rate
+
+      # ---------------------------------------------------------------------
+      # Charts
+      #
+      # statistics-graph is native and needs the sensors to have a state_class,
+      # which they do.
+      # ---------------------------------------------------------------------
+      - type: statistics-graph
+        title: Cost of waiting
+        chart_type: line
+        period: hour
+        days_to_show: 30
+        stat_types:
+          - mean
+        entities:
+          - sensor.fx_total_daily_waiting_cost
+
+      - type: statistics-graph
+        title: USD required over time
+        chart_type: line
+        period: hour
+        days_to_show: 30
+        stat_types:
+          - mean
+        entities:
+          - sensor.fx_total_usd_required
+
+      - type: history-graph
+        title: Recommendations
+        hours_to_show: 168
+        entities:
+          - entity: sensor.fx_debt_strategy_status
+            name: Overall
+          - entity: sensor.meika_repayment_recommendation
+            name: Meika repayment
+          - entity: sensor.mortgage_offset_recommendation
+            name: Mortgage offset
+
+# ---------------------------------------------------------------------------
+# Example automation: convert-now alert
+#
+# Put this in automations.yaml, not in the dashboard.
+# ---------------------------------------------------------------------------
+#
+# automation:
+#   - alias: "FX: an obligation needs converting"
+#     trigger:
+#       - platform: state
+#         entity_id:
+#           - sensor.meika_repayment_recommendation
+#           - sensor.mortgage_offset_recommendation
+#         to:
+#           - CONVERT_NOW
+#           - OVERDUE
+#     action:
+#       - service: notify.mobile_app_phone
+#         data:
+#           title: "{{ trigger.to_state.attributes.friendly_name }}"
+#           message: >-
+#             {{ trigger.to_state.attributes.recommendation_reason }}

@@ -10,6 +10,7 @@ const NAV = [
   { to: '/strategy', label: 'Strategy', glyph: '🪜' },
   { to: '/scenarios', label: 'Scenarios', glyph: '⚖' },
   { to: '/conversions', label: 'Conversions', glyph: '💱' },
+  { to: '/obligations', label: 'Debts', glyph: '🧾' },
   { to: '/settings', label: 'Settings', glyph: '⚙' },
   { to: '/diagnostics', label: 'Diagnostics', glyph: '🩺' },
 ];

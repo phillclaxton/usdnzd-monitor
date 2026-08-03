@@ -472,3 +472,160 @@ def test_the_score_components_are_all_shown() -> None:
         "partial_flexibility",
     }
     assert sum(components.values()) == result.overall_score
+
+
+# ---------------------------------------------------------------------------
+# The remaining decision branches
+#
+# Each of these is a distinct recommendation a user could receive, so each
+# needs to be shown to happen for the reason it claims.
+# ---------------------------------------------------------------------------
+
+
+def test_a_spent_waiting_limit_forces_conversion() -> None:
+    obligation = ObligationInput(
+        name="Out of time",
+        total_nzd=Decimal("50000"),
+        annual_rate=Decimal("0.05"),
+        max_wait_days=0,
+        target_rate=Decimal("1.90"),
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.CONVERT_NOW
+    assert "maximum acceptable waiting period" in result.reason
+
+
+def test_high_relationship_importance_within_a_month_converts_now() -> None:
+    obligation = ObligationInput(
+        name="Family",
+        total_nzd=Decimal("50000"),
+        interest_basis=InterestBasis.NONE,
+        relationship=Relationship.HIGH,
+        due_date=date(2026, 8, 25),
+        target_rate=Decimal("1.90"),
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.CONVERT_NOW
+    assert "Relationship importance is high" in result.reason
+
+
+def test_a_negative_net_benefit_converts_now() -> None:
+    """A target barely above the rate cannot repay a heavy interest cost."""
+    obligation = ObligationInput(
+        name="Expensive",
+        total_nzd=Decimal("200000"),
+        annual_rate=Decimal("0.25"),
+        target_rate=Decimal("1.7201"),
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.CONVERT_NOW
+    assert "Waiting costs more than the target rate would return" in result.reason
+
+
+def test_a_partial_obligation_due_within_a_month_converts_part() -> None:
+    obligation = ObligationInput(
+        name="Split it",
+        total_nzd=Decimal("100000"),
+        annual_rate=Decimal("0.05"),
+        partial_allowed=True,
+        due_date=date(2026, 8, 28),
+        target_rate=Decimal("1.85"),
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.CONVERT_PARTIAL
+    assert "partial payments" in result.reason
+
+
+def test_a_waiting_limit_turns_waiting_into_a_deadline() -> None:
+    obligation = ObligationInput(
+        name="Deadline",
+        total_nzd=Decimal("100000"),
+        annual_rate=Decimal("0.05"),
+        target_rate=Decimal("1.85"),
+        max_wait_days=45,
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.WAIT_WITH_DEADLINE
+    assert "day 45 as the conversion deadline" in result.reason
+
+
+def test_no_deadline_leaves_a_plain_wait_for_target() -> None:
+    obligation = ObligationInput(
+        name="Patient",
+        total_nzd=Decimal("100000"),
+        annual_rate=Decimal("0.05"),
+        target_rate=Decimal("1.85"),
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.WAIT_FOR_TARGET
+    assert "No urgent date" in result.reason
+
+
+def test_an_interest_bearing_obligation_with_no_target_asks_for_review() -> None:
+    """Nothing to weigh the cost of waiting against is a gap, not a decision."""
+    obligation = ObligationInput(
+        name="No target", total_nzd=Decimal("100000"), annual_rate=Decimal("0.05")
+    )
+    result = analyse(obligation, live(), today=TODAY)
+
+    assert result.action == RecommendedAction.REVIEW
+    assert "No target rate is set" in result.reason
+
+
+def test_the_estimate_notice_is_available_on_every_analysis() -> None:
+    result = analyse(MORTGAGE_OFFSET, live(), today=TODAY)
+    assert "not financial advice" in result.estimate_notice
+
+
+@pytest.mark.parametrize(
+    ("days", "expected"),
+    [(-1, Decimal(80)), (3, Decimal(60)), (20, Decimal(35)), (60, Decimal(15)), (200, Decimal(5))],
+)
+def test_due_urgency_steps_with_the_date(days: int, expected: Decimal) -> None:
+    from app.services.obligation_engine import due_urgency_score
+
+    assert due_urgency_score(days) == expected
+
+
+@pytest.mark.parametrize(
+    ("daily", "expected"),
+    [
+        (Decimal("150"), Decimal(40)),
+        (Decimal("60"), Decimal(30)),
+        (Decimal("25"), Decimal(22)),
+        (Decimal("8"), Decimal(14)),
+        (Decimal("1"), Decimal(6)),
+        (Decimal("0"), Decimal(0)),
+    ],
+)
+def test_interest_cost_is_stepped_not_proportional(daily: Decimal, expected: Decimal) -> None:
+    """A big debt must not be able to outweigh every other consideration."""
+    from app.services.obligation_engine import interest_cost_score
+
+    assert interest_cost_score(daily) == expected
+
+
+@pytest.mark.parametrize(
+    ("days", "expected"),
+    [(None, Decimal(0)), (5, Decimal(25)), (20, Decimal(12)), (120, Decimal(4))],
+)
+def test_a_short_acceptable_wait_raises_the_score(days: int | None, expected: Decimal) -> None:
+    from app.services.obligation_engine import max_wait_score
+
+    assert max_wait_score(days) == expected
+
+
+def test_size_is_a_share_of_the_book_and_capped_at_ten() -> None:
+    from app.services.obligation_engine import size_score
+
+    assert size_score(Decimal("100000"), Decimal("100000")) == Decimal("10.00")
+    assert size_score(Decimal("50000"), Decimal("100000")) == Decimal("5.00")
+    # No book, or nothing outstanding, contributes nothing.
+    assert size_score(Decimal("50000"), Decimal(0)) == Decimal(0)
+    assert size_score(Decimal(0), Decimal("100000")) == Decimal(0)
