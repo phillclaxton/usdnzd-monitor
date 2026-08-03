@@ -129,6 +129,20 @@ refresh rather than reasoning from an old number.
 | Maximum acceptable wait | In days; also becomes a break-even horizon |
 | Notes, active, completed | |
 
+## Editing and clearing
+
+Select an obligation in the priority table, then **Edit**. Every field is
+editable, including the ones that change what the recommendation says.
+
+Optional fields — due date, target rate, maximum acceptable wait — each have a
+**Clear** button beside them. Clearing one removes it: an emptied field is sent
+as an explicit null rather than being left as it was. Some browsers hide the
+native clear control on a date input, which is why there is an explicit one.
+
+Clearing a due date changes the recommendation, since the deadline may have been
+the only thing forcing a conversion. Both the old and the new value are kept in
+the audit trail.
+
 ## Conversion allocation
 
 Three plans are shown side by side: critical only, critical plus anything due

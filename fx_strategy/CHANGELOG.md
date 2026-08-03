@@ -4,6 +4,24 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-08-03
+
+### Fixed
+
+- **Obligations could not be edited.** The API supported it, but nothing in the
+  interface reached the endpoint — `api.patch` did not exist on the client, so
+  there was no way to correct a mistake short of deleting and re-adding. The
+  add form now does double duty as an edit form, opened with **Edit** on the
+  detail card.
+- **An optional field could not be cleared.** A due date, target rate or
+  maximum waiting period added by accident had no way out. Each now has a Clear
+  button, and an emptied field is sent as an explicit null so the server removes
+  it. Some browsers hide the native clear control on a date input, hence an
+  explicit one.
+
+Clearing a due date changes the recommendation, since the deadline may have been
+the only thing forcing a conversion. Both values are kept in the audit trail.
+
 ## [1.2.0] - 2026-08-03
 
 Debts and conversion priorities.

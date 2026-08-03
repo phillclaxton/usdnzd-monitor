@@ -522,3 +522,15 @@ button.is-danger {
   padding-top: 10px;
   padding-bottom: 10px;
 }
+
+/* An input beside its own clear button. */
+.fx-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fx-input-row input {
+  flex: 1;
+  min-width: 0;
+}
