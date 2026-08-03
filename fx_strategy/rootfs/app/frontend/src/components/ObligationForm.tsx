@@ -3,7 +3,13 @@ import { useMutation } from '@tanstack/react-query';
 
 import { Banner, Card, Field } from '@/components/ui';
 import { api } from '@/lib/api';
-import type { InterestBasis, ObligationPriority, ObligationType, RelationshipImportance } from '@/types';
+import type {
+  InterestBasis,
+  Obligation,
+  ObligationPriority,
+  ObligationType,
+  RelationshipImportance,
+} from '@/types';
 
 const TYPES: { value: ObligationType; label: string }[] = [
   { value: 'mortgage', label: 'Mortgage' },
@@ -17,53 +23,90 @@ const TYPES: { value: ObligationType; label: string }[] = [
   { value: 'other', label: 'Other NZD obligation' },
 ];
 
-/** Adding an obligation. Editing reuses the same shape through PATCH. */
+/**
+ * Adding or editing an obligation.
+ *
+ * One form for both: an edit that could not reach every field would leave the
+ * user unable to undo a mistake. Every optional field can be emptied, and an
+ * emptied field is sent as an explicit null so the server clears it rather than
+ * leaving the old value in place.
+ */
 export default function ObligationForm({
+  obligation,
   onDone,
   onCancel,
 }: {
+  obligation?: Obligation;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState<ObligationType>('other');
-  const [total, setTotal] = useState('');
-  const [funded, setFunded] = useState('');
-  const [ratePercent, setRatePercent] = useState('');
-  const [basis, setBasis] = useState<InterestBasis>('simple_annual');
-  const [dueDate, setDueDate] = useState('');
-  const [priority, setPriority] = useState<ObligationPriority>('normal');
-  const [relationship, setRelationship] = useState<RelationshipImportance>('none');
-  const [partial, setPartial] = useState(true);
-  const [targetRate, setTargetRate] = useState('');
-  const [maxWait, setMaxWait] = useState('');
-  const [notes, setNotes] = useState('');
+  const editing = obligation !== undefined;
 
-  const create = useMutation({
+  const [name, setName] = useState(obligation?.name ?? '');
+  const [type, setType] = useState<ObligationType>(obligation?.obligation_type ?? 'other');
+  const [total, setTotal] = useState(obligation?.total_nzd ?? '');
+  const [funded, setFunded] = useState(obligation?.amount_funded_nzd ?? '');
+  // Stored as a fraction, shown as a percentage.
+  const [ratePercent, setRatePercent] = useState(
+    obligation && obligation.annual_rate !== '0.00000000'
+      ? String(Number(obligation.annual_rate) * 100)
+      : '',
+  );
+  const [basis, setBasis] = useState<InterestBasis>(
+    obligation?.interest_basis ?? 'simple_annual',
+  );
+  const [dueDate, setDueDate] = useState(obligation?.due_date ?? '');
+  const [priority, setPriority] = useState<ObligationPriority>(obligation?.priority ?? 'normal');
+  const [relationship, setRelationship] = useState<RelationshipImportance>(
+    obligation?.relationship_importance ?? 'none',
+  );
+  const [partial, setPartial] = useState(obligation?.partial_allowed ?? true);
+  const [targetRate, setTargetRate] = useState(obligation?.target_rate ?? '');
+  const [maxWait, setMaxWait] = useState(
+    obligation?.max_wait_days === null || obligation?.max_wait_days === undefined
+      ? ''
+      : String(obligation.max_wait_days),
+  );
+  const [notes, setNotes] = useState(obligation?.notes ?? '');
+
+  /** An empty optional field becomes null, which is what clears it server-side. */
+  const payload = () => ({
+    name,
+    obligation_type: type,
+    total_nzd: total,
+    amount_funded_nzd: funded || '0',
+    // Entered as a percentage for readability; stored as the fraction the
+    // engine works in, so 6.04 becomes 0.0604.
+    annual_rate: basis === 'none' || !ratePercent ? '0' : String(Number(ratePercent) / 100),
+    interest_basis: basis,
+    due_date: dueDate || null,
+    priority,
+    relationship_importance: relationship,
+    partial_allowed: partial,
+    target_rate: targetRate || null,
+    max_wait_days: maxWait ? Number(maxWait) : null,
+    notes,
+  });
+
+  const save = useMutation({
     mutationFn: () =>
-      api.post('obligations', {
-        name,
-        obligation_type: type,
-        total_nzd: total,
-        amount_funded_nzd: funded || '0',
-        // Entered as a percentage for readability; stored as the fraction the
-        // engine works in, so 6.04 becomes 0.0604.
-        annual_rate:
-          basis === 'none' || !ratePercent ? '0' : String(Number(ratePercent) / 100),
-        interest_basis: basis,
-        due_date: dueDate || null,
-        priority,
-        relationship_importance: relationship,
-        partial_allowed: partial,
-        target_rate: targetRate || null,
-        max_wait_days: maxWait ? Number(maxWait) : null,
-        notes,
-      }),
+      editing
+        ? api.patch(`obligations/${obligation.id}`, payload())
+        : api.post('obligations', payload()),
     onSuccess: onDone,
   });
 
+  const create = save;
+
   return (
-    <Card title="New obligation" subtitle="Everything except the name and amount is optional.">
+    <Card
+      title={editing ? `Edit ${obligation.name}` : 'New obligation'}
+      subtitle={
+        editing
+          ? 'Clearing an optional field removes it. An emptied date, target rate or waiting limit is deleted rather than left as it was.'
+          : 'Everything except the name and amount is optional.'
+      }
+    >
       {create.isError && <Banner tone="error">{(create.error as Error).message}</Banner>}
 
       <Field label="Name" htmlFor="ob-name">
@@ -138,12 +181,20 @@ export default function ObligationForm({
       )}
 
       <Field label="Due date" hint="optional" htmlFor="ob-due">
-        <input
-          id="ob-due"
-          type="date"
-          value={dueDate}
-          onChange={(event) => setDueDate(event.target.value)}
-        />
+        <div className="fx-input-row">
+          <input
+            id="ob-due"
+            type="date"
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+          />
+          {/* Some browsers hide the native clear control on a date input, so
+              there is an explicit one. A date added by accident has to be
+              removable. */}
+          <button type="button" disabled={!dueDate} onClick={() => setDueDate('')}>
+            Clear
+          </button>
+        </div>
       </Field>
 
       <Field label="Priority" htmlFor="ob-priority">
@@ -187,28 +238,34 @@ export default function ObligationForm({
       </Field>
 
       <Field label="Target rate" hint="optional" htmlFor="ob-target">
-        <input
-          id="ob-target"
-          type="text"
-          inputMode="decimal"
-          placeholder="e.g. 1.7800"
-          value={targetRate}
-          onChange={(event) => setTargetRate(event.target.value)}
-        />
+        <div className="fx-input-row">
+          <input
+            id="ob-target"
+            type="text"
+            inputMode="decimal"
+            placeholder="e.g. 1.7800"
+            value={targetRate}
+            onChange={(event) => setTargetRate(event.target.value)}
+          />
+          <button type="button" disabled={!targetRate} onClick={() => setTargetRate('')}>
+            Clear
+          </button>
+        </div>
       </Field>
 
-      <Field
-        label="Maximum acceptable wait"
-        hint="in days; optional"
-        htmlFor="ob-max-wait"
-      >
-        <input
-          id="ob-max-wait"
-          type="number"
-          min={0}
-          value={maxWait}
-          onChange={(event) => setMaxWait(event.target.value)}
-        />
+      <Field label="Maximum acceptable wait" hint="in days; optional" htmlFor="ob-max-wait">
+        <div className="fx-input-row">
+          <input
+            id="ob-max-wait"
+            type="number"
+            min={0}
+            value={maxWait}
+            onChange={(event) => setMaxWait(event.target.value)}
+          />
+          <button type="button" disabled={!maxWait} onClick={() => setMaxWait('')}>
+            Clear
+          </button>
+        </div>
       </Field>
 
       <Field label="Notes" htmlFor="ob-notes">
@@ -227,7 +284,7 @@ export default function ObligationForm({
           disabled={!name || !total || create.isPending}
           onClick={() => create.mutate()}
         >
-          {create.isPending ? 'Saving…' : 'Add obligation'}
+          {create.isPending ? 'Saving…' : editing ? 'Save changes' : 'Add obligation'}
         </button>
         <button type="button" onClick={onCancel}>
           Cancel

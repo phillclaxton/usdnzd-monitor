@@ -477,3 +477,119 @@ async def test_deleting_keeps_the_audit_record(client: AsyncClient, rate: None) 
 async def test_a_missing_obligation_is_a_404(client: AsyncClient) -> None:
     assert (await client.get("/api/v1/obligations/999")).status_code == 404
     assert (await client.delete("/api/v1/obligations/999")).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Editing and clearing
+#
+# An optional field added by mistake has to be removable. A PATCH omitting a
+# key leaves it alone; a PATCH sending null clears it, and the two must stay
+# distinguishable.
+# ---------------------------------------------------------------------------
+
+
+async def test_a_due_date_can_be_cleared(client: AsyncClient, rate: None) -> None:
+    created = await add(client, {**MORTGAGE, "due_date": in_days(5)})
+    assert created["due_date"] is not None
+    assert created["action"] == "CONVERT_NOW"
+
+    cleared = (
+        await client.patch(f"/api/v1/obligations/{created['id']}", json={"due_date": None})
+    ).json()
+
+    assert cleared["due_date"] is None
+    assert cleared["days_until_due"] is None
+    # And the recommendation follows: the deadline was the only thing forcing it.
+    assert cleared["action"] != "CONVERT_NOW"
+
+
+async def test_omitting_a_field_leaves_it_alone(client: AsyncClient, rate: None) -> None:
+    """The counterpart: a partial edit must not blank everything it did not mention."""
+    created = await add(
+        client, {**MORTGAGE, "due_date": in_days(20), "target_rate": "1.8000", "notes": "keep me"}
+    )
+
+    patched = (
+        await client.patch(f"/api/v1/obligations/{created['id']}", json={"priority": "high"})
+    ).json()
+
+    assert patched["priority"] == "high"
+    assert patched["due_date"] == created["due_date"]
+    assert patched["target_rate"] == "1.8000"
+    assert patched["notes"] == "keep me"
+
+
+async def test_a_target_rate_can_be_cleared(client: AsyncClient, rate: None) -> None:
+    created = await add(client, {**MORTGAGE, "target_rate": "1.8000"})
+    cleared = (
+        await client.patch(f"/api/v1/obligations/{created['id']}", json={"target_rate": None})
+    ).json()
+
+    assert cleared["target_rate"] is None
+    assert cleared["gain_at_target_nzd"] is None
+    assert any("no target rate" in w.lower() for w in cleared["warnings"])
+
+
+async def test_a_maximum_wait_can_be_cleared(client: AsyncClient, rate: None) -> None:
+    created = await add(client, {**MORTGAGE, "max_wait_days": 45})
+    assert "45" in created["break_even_rate_after"]
+
+    cleared = (
+        await client.patch(f"/api/v1/obligations/{created['id']}", json={"max_wait_days": None})
+    ).json()
+
+    assert cleared["max_wait_days"] is None
+    # The bespoke break-even horizon goes with it.
+    assert "45" not in cleared["break_even_rate_after"]
+
+
+async def test_every_editable_field_can_be_changed(client: AsyncClient, rate: None) -> None:
+    """An edit that could not reach a field would leave a mistake uncorrectable."""
+    created = await add(client, MORTGAGE)
+
+    patched = (
+        await client.patch(
+            f"/api/v1/obligations/{created['id']}",
+            json={
+                "name": "Renamed",
+                "obligation_type": "mortgage",
+                "total_nzd": "300000",
+                "amount_funded_nzd": "50000",
+                "annual_rate": "0.055",
+                "interest_basis": "simple_annual",
+                "due_date": in_days(90),
+                "priority": "critical",
+                "relationship_importance": "moderate",
+                "minimum_payment_nzd": "1000",
+                "partial_allowed": False,
+                "target_rate": "1.7900",
+                "max_wait_days": 30,
+                "notes": "edited",
+            },
+        )
+    ).json()
+
+    assert patched["name"] == "Renamed"
+    assert patched["total_nzd"] == "300000.0000"
+    assert patched["remaining_nzd"] == "250000.0000"
+    assert patched["annual_rate"] == "0.05500000"
+    assert patched["priority"] == "critical"
+    assert patched["relationship_importance"] == "moderate"
+    assert patched["partial_allowed"] is False
+    assert patched["target_rate"] == "1.7900"
+    assert patched["max_wait_days"] == 30
+    assert patched["notes"] == "edited"
+
+
+async def test_clearing_is_recorded_in_the_audit_trail(client: AsyncClient, rate: None) -> None:
+    created = await add(client, {**MORTGAGE, "due_date": in_days(5)})
+    await client.patch(f"/api/v1/obligations/{created['id']}", json={"due_date": None})
+
+    events = (await client.get("/api/v1/audit-events")).json()
+    updates = [
+        e for e in events if e["entity_type"] == "obligation" and e["event_type"] == "updated"
+    ]
+    assert updates
+    # The date that was removed is still recoverable from the record.
+    assert json.loads(updates[0]["before_json"])["due_date"] == created["due_date"]
+    assert json.loads(updates[0]["after_json"])["due_date"] is None
