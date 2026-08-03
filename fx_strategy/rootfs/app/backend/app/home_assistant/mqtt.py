@@ -86,7 +86,8 @@ def discovery_payload(
         "name": definition.name,
         "unique_id": definition.object_id,
         "object_id": definition.object_id,
-        "device": device_payload(settings, config),
+        # An obligation supplies its own device; everything else joins the app's.
+        "device": definition.device or device_payload(settings, config),
         "availability_topic": availability_topic(node_id),
         "payload_available": ONLINE,
         "payload_not_available": OFFLINE,
@@ -320,7 +321,10 @@ def set_publisher(publisher: MqttPublisher | None) -> None:
 
 
 def all_definitions(context: EntityContext, settings: Settings) -> list[EntityDefinition]:
+    from app.home_assistant.obligation_entities import obligation_definitions
+
     definitions = build_definitions(context)
     if settings.home_assistant.expose_writable_controls:
         definitions.extend(writable_definitions(context))
+    definitions.extend(obligation_definitions(context, settings.home_assistant.device_name))
     return definitions

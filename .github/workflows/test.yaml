@@ -60,7 +60,9 @@ jobs:
         # The calculation modules carry a higher bar than the codebase overall.
         run: |
           .venv/bin/python -m pytest app/tests \
-            --cov=app.services.calculations --cov=app.money \
+            --cov=app.services.calculations \
+            --cov=app.services.obligation_engine \
+            --cov=app.money \
             --cov-report=term-missing --cov-fail-under=95
 
       - uses: actions/upload-artifact@v4

@@ -427,8 +427,14 @@ async def test_no_route_in_the_application_executes_a_conversion(
     """A structural check over the whole route table."""
     from app.config import get_config
     from app.main import create_app
+    from app.tests.helpers import all_route_paths
 
-    routes = [getattr(route, "path", "") for route in create_app(get_config()).routes]
+    routes = all_route_paths(create_app(get_config()))
+    # Guard the guard: app.routes alone returns the included routers as opaque
+    # objects, so this assertion would inspect seven paths and pass regardless.
+    assert len(routes) > 50, "the route walk is not reaching the mounted routers"
+    assert "/wise/execution-policy" in routes
+
     banned = ("/transfers", "/execute-conversion", "/convert")
     assert not [path for path in routes if any(token in path for token in banned)]
 

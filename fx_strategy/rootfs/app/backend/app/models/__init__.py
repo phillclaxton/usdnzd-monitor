@@ -13,6 +13,7 @@ from app.models.alert import (
     TrancheAlertState,
 )
 from app.models.audit import AuditEvent, AuditEventType
+from app.models.obligation import Obligation, ObligationFunding
 from app.models.rate import (
     FeeModel,
     ManualRate,
@@ -42,6 +43,8 @@ __all__ = [
     "FeeModel",
     "ManualRate",
     "NotificationLog",
+    "Obligation",
+    "ObligationFunding",
     "ProviderStatus",
     "RateAggregate",
     "RateSample",

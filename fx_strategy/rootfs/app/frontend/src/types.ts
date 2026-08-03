@@ -696,3 +696,150 @@ export interface GenericProviderStatus {
   rate: string | null;
   latency_ms: number | null;
 }
+
+// --- Obligations -----------------------------------------------------------
+
+export type ObligationType =
+  | 'mortgage'
+  | 'revolving_credit'
+  | 'offset_loan'
+  | 'personal_loan'
+  | 'credit_card'
+  | 'tax_payment'
+  | 'interest_free_loan'
+  | 'planned_purchase'
+  | 'other';
+
+export type ObligationPriority = 'critical' | 'high' | 'normal' | 'low';
+export type RelationshipImportance = 'none' | 'moderate' | 'high';
+export type InterestBasis = 'simple_annual' | 'daily_manual' | 'none';
+
+export type RecommendedAction =
+  | 'PAY_NOW'
+  | 'CONVERT_NOW'
+  | 'CONVERT_PARTIAL'
+  | 'WAIT_FOR_TARGET'
+  | 'WAIT_WITH_DEADLINE'
+  | 'REVIEW'
+  | 'FUNDED'
+  | 'OVERDUE';
+
+export interface WaitingOutcome {
+  days: number;
+  waiting_cost_nzd: string;
+  fx_gain_nzd: string | null;
+  net_benefit_nzd: string | null;
+}
+
+export interface PriorityComponents {
+  due_urgency: string;
+  user_priority: string;
+  relationship: string;
+  interest_cost: string;
+  size: string;
+  max_wait: string;
+  partial_flexibility: string;
+}
+
+export interface Obligation {
+  id: number;
+  name: string;
+  obligation_type: ObligationType;
+  priority: ObligationPriority;
+  relationship_importance: RelationshipImportance;
+  interest_basis: InterestBasis;
+  partial_allowed: boolean;
+  active: boolean;
+  completed: boolean;
+  notes: string;
+
+  total_nzd: string;
+  amount_funded_nzd: string;
+  remaining_nzd: string;
+  annual_rate: string;
+  minimum_payment_nzd: string | null;
+  due_date: string | null;
+  earliest_payment_date: string | null;
+  target_rate: string | null;
+  max_wait_days: number | null;
+
+  daily_cost_nzd: string;
+  weekly_cost_nzd: string;
+  monthly_cost_nzd: string;
+  annual_cost_nzd: string;
+  has_interest_cost: boolean;
+
+  usd_required_now: string | null;
+  rate_used: string | null;
+  rate_stale: boolean;
+  rate_quality: string;
+
+  gain_at_improvement: Record<string, string | null>;
+  gain_at_target_nzd: string | null;
+  waiting: WaitingOutcome[];
+  break_even_days_at_improvement: Record<string, string | null>;
+  break_even_days_at_target: string | null;
+  break_even_rate_after: Record<string, string | null>;
+
+  days_until_due: number | null;
+  overdue: boolean;
+
+  priority_components: PriorityComponents;
+  financial_score: string;
+  overall_score: string;
+  financial_rank: number;
+  overall_rank: number;
+
+  action: RecommendedAction;
+  reason: string;
+  warnings: string[];
+  disclaimer: string;
+}
+
+export interface ObligationPortfolio {
+  total_obligations: number;
+  total_nzd: string;
+  total_usd_required: string | null;
+  total_daily_cost_nzd: string;
+  total_monthly_cost_nzd: string;
+  due_within_7_days_nzd: string;
+  due_within_30_days_nzd: string;
+  highest_priority_obligation_id: number | null;
+  highest_priority_obligation_name: string;
+  next_obligation_id: number | null;
+  next_obligation_name: string;
+  next_conversion_usd: string | null;
+  next_conversion_nzd: string;
+  usd_after_critical: string | null;
+  usd_after_high_priority: string | null;
+  weighted_break_even_rate: string | null;
+  max_rational_wait_days: number | null;
+  strategy_status: string;
+  rate_used: string | null;
+  rate_stale: boolean;
+  rate_quality: string;
+  warnings: string[];
+  disclaimer: string;
+}
+
+export interface AllocationLine {
+  obligation_id: number;
+  name: string;
+  nzd_funded: string;
+  usd_required: string | null;
+  fully_funded: boolean;
+  action: RecommendedAction;
+}
+
+export interface Allocation {
+  label: string;
+  description: string;
+  usd_to_convert: string | null;
+  nzd_obtained: string;
+  lines: AllocationLine[];
+  unfunded_obligation_ids: number[];
+  unfunded_nzd: string;
+  rate_used: string | null;
+  rate_stale: boolean;
+  disclaimer: string;
+}
