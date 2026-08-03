@@ -93,6 +93,26 @@ async def build_context(session: AsyncSession, settings: Settings) -> EntityCont
     unhealthy = [status for status in statuses if not status.healthy]
     publisher = get_publisher()
 
+    # The obligations book, if the feature is in use. A failure here must not
+    # take down publication of the rate and strategy entities.
+    portfolio = None
+    obligation_rows: list[Any] = []
+    try:
+        from app.api.v1.obligations import _to_out
+        from app.schemas.obligation import PortfolioOut
+        from app.services import obligation_service
+
+        ranked = await obligation_service.analyse_all(session, settings)
+        if ranked:
+            rate_context = await obligation_service.rate_context(session, settings)
+            portfolio = PortfolioOut.model_validate(
+                obligation_service.build_portfolio(ranked, rate_context),
+                from_attributes=True,
+            )
+            obligation_rows = [_to_out(item) for item in ranked]
+    except Exception:  # pragma: no cover - defensive
+        log.warning("obligation_entities_unavailable", exc_info=True)
+
     return EntityContext(
         rate=rate_out,
         summary=summary,
@@ -105,6 +125,8 @@ async def build_context(session: AsyncSession, settings: Settings) -> EntityCont
         mqtt_connected=publisher.connected,
         wise_connected=settings.providers.wise.enabled,
         simulation=settings.simulation.enabled,
+        portfolio=portfolio,
+        obligations=obligation_rows,
     )
 
 
