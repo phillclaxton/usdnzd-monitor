@@ -36,6 +36,7 @@ export default function ObligationsPage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
   const [usdAvailable, setUsdAvailable] = useState('');
 
   const obligations = useQuery({
@@ -63,6 +64,7 @@ export default function ObligationsPage() {
   const rows = obligations.data ?? [];
   const book = portfolio.data;
   const detail = rows.find((row) => row.id === selected) ?? null;
+  const edited = rows.find((row) => row.id === editing) ?? null;
 
   // Overall rank is the default ordering: it is the one that answers "what next".
   const ordered = [...rows].sort((a, b) => a.overall_rank - b.overall_rank);
@@ -161,6 +163,20 @@ export default function ObligationsPage() {
         />
       )}
 
+      {edited && (
+        <ObligationForm
+          // Keyed by id so switching between obligations rebuilds the form
+          // rather than showing the previous one's values.
+          key={edited.id}
+          obligation={edited}
+          onDone={() => {
+            setEditing(null);
+            void invalidate();
+          }}
+          onCancel={() => setEditing(null)}
+        />
+      )}
+
       {rows.length === 0 && !obligations.isLoading && (
         <EmptyState title="No obligations recorded" glyph="🧾">
           Add a debt, loan or commitment and this page will show what funding it costs, what
@@ -248,6 +264,7 @@ export default function ObligationsPage() {
           obligation={detail}
           onChanged={invalidate}
           onClose={() => setSelected(null)}
+          onEdit={() => setEditing(detail.id)}
         />
       )}
 

@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ObligationDetail from '@/components/ObligationDetail';
+import ObligationForm from '@/components/ObligationForm';
 import ObligationsPage from '@/pages/ObligationsPage';
 import { api } from '@/lib/api';
 import type { Obligation, ObligationPortfolio } from '@/types';
@@ -240,5 +242,98 @@ describe('ObligationDetail', () => {
   it('shows the rate that would justify waiting', () => {
     renderDetail(MORTGAGE);
     expect(screen.getByText('1.7285')).toBeInTheDocument();
+  });
+});
+
+describe('ObligationForm', () => {
+  function renderForm(obligation?: Obligation) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ObligationForm obligation={obligation} onDone={() => {}} onCancel={() => {}} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('opens pre-filled when editing an existing obligation', () => {
+    renderForm(MORTGAGE);
+
+    expect(screen.getByText(/Edit Mortgage offset/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Name/)).toHaveValue('Mortgage offset');
+    expect(screen.getByLabelText(/^Total NZD/)).toHaveValue('256000.0000');
+    // The stored fraction is shown as the percentage the user typed.
+    expect(screen.getByLabelText(/^Annual interest rate/)).toHaveValue('6.04');
+  });
+
+  it('is empty when adding', () => {
+    renderForm();
+    expect(screen.getByText('New obligation')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Name/)).toHaveValue('');
+  });
+
+  it('sends a PATCH when editing, not a POST', async () => {
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({} as never);
+    const post = vi.spyOn(api, 'post').mockResolvedValue({} as never);
+    renderForm(MORTGAGE);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(patch).toHaveBeenCalledWith('obligations/1', expect.any(Object));
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('clears a due date by sending an explicit null', async () => {
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({} as never);
+    renderForm({ ...MORTGAGE, due_date: '2026-09-01' });
+
+    expect(screen.getByLabelText(/^Due date/)).toHaveValue('2026-09-01');
+    const [clearDate] = screen.getAllByRole('button', { name: 'Clear' });
+    await userEvent.click(clearDate!);
+    expect(screen.getByLabelText(/^Due date/)).toHaveValue('');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    // null, not undefined and not an empty string: only null clears it.
+    expect(patch).toHaveBeenCalledWith(
+      'obligations/1',
+      expect.objectContaining({ due_date: null }),
+    );
+  });
+
+  it('clears a target rate and a waiting limit the same way', async () => {
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({} as never);
+    renderForm({ ...MORTGAGE, target_rate: '1.8000', max_wait_days: 45 });
+
+    const clears = screen.getAllByRole('button', { name: 'Clear' });
+    // Due date has none set, so its Clear is disabled; the other two are live.
+    for (const button of clears) {
+      if (!button.hasAttribute('disabled')) await userEvent.click(button);
+    }
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(patch).toHaveBeenCalledWith(
+      'obligations/1',
+      expect.objectContaining({ target_rate: null, max_wait_days: null }),
+    );
+  });
+
+  it('disables Clear when there is nothing to clear', () => {
+    renderForm({ ...MORTGAGE, due_date: null });
+    // The due-date Clear is the first one and has nothing to remove.
+    const [clearDate] = screen.getAllByRole('button', { name: 'Clear' });
+    expect(clearDate).toBeDisabled();
+  });
+
+  it('converts the percentage back to a fraction on save', async () => {
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({} as never);
+    renderForm(MORTGAGE);
+
+    await userEvent.clear(screen.getByLabelText(/^Annual interest rate/));
+    await userEvent.type(screen.getByLabelText(/^Annual interest rate/), '7.5');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(patch).toHaveBeenCalledWith(
+      'obligations/1',
+      expect.objectContaining({ annual_rate: '0.075' }),
+    );
   });
 });

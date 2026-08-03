@@ -14,10 +14,12 @@ export default function ObligationDetail({
   obligation,
   onChanged,
   onClose,
+  onEdit,
 }: {
   obligation: Obligation;
   onChanged: () => void;
   onClose: () => void;
+  onEdit?: () => void;
 }) {
   const [funding, setFunding] = useState('');
 
@@ -220,6 +222,11 @@ export default function ObligationDetail({
         >
           Record funding
         </button>
+        {onEdit && (
+          <button type="button" onClick={onEdit}>
+            Edit
+          </button>
+        )}
         <button type="button" disabled={complete.isPending} onClick={() => complete.mutate()}>
           Mark funded
         </button>
