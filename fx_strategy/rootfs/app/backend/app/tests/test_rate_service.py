@@ -485,3 +485,73 @@ async def test_importing_points_is_idempotent(session: AsyncSession) -> None:
     assert await rate_service.import_points(session, points, "USD", "NZD") == 3
     # Re-importing the same file adds nothing.
     assert await rate_service.import_points(session, points, "USD", "NZD") == 0
+
+
+# ---------------------------------------------------------------------------
+# Not configured is not failing
+#
+# The manual fallback with no rate entered is in the chain by default but is
+# only reached when everything above it fails. Recording that as a failure left
+# it showing red permanently, because the chain stops at the first success and
+# can never reach it again to record a recovery.
+# ---------------------------------------------------------------------------
+
+
+async def test_an_unconfigured_fallback_is_not_recorded_as_a_failure(
+    session: AsyncSession, settings: Settings
+) -> None:
+    from app.providers.manual import ManualProvider
+
+    registry = StubRegistry(settings, {"primary": StubProvider("primary", None, error="down")})
+    registry._stubs["manual"] = ManualProvider()  # type: ignore[assignment]
+
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+    assert outcome.succeeded is False
+
+    status = await session.get(ProviderStatus, "manual")
+    assert status is not None
+    # Reported, but not as a fault: no failure count, no backoff.
+    assert status.consecutive_failures == 0
+    assert status.healthy is True
+    assert status.retry_after is None
+    assert status.last_error is not None and "No manual rate" in status.last_error
+
+    # The provider that genuinely failed is still marked failing.
+    primary = await session.get(ProviderStatus, "primary")
+    assert primary is not None and primary.healthy is False
+
+
+async def test_a_stale_failure_on_an_unconfigured_provider_is_cleared(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """The upgrade path: an installation carrying the old bad state recovers."""
+    from app.providers.manual import ManualProvider
+
+    await rate_service.record_provider_failure(
+        session, "manual", "No manual rate has been entered yet.", max_backoff=3600
+    )
+    stale = await session.get(ProviderStatus, "manual")
+    assert stale is not None and stale.healthy is False
+
+    registry = StubRegistry(settings, {"manual": ManualProvider()})  # type: ignore[dict-item]
+    await rate_service.refresh_rate(session, settings, registry, respect_backoff=False)
+
+    cleared = await session.get(ProviderStatus, "manual")
+    assert cleared is not None
+    assert cleared.healthy is True
+    assert cleared.consecutive_failures == 0
+
+
+async def test_a_configured_manual_provider_still_works(
+    session: AsyncSession, settings: Settings
+) -> None:
+    from app.providers.manual import ManualProvider
+
+    provider = ManualProvider(rate=Decimal("1.75"))
+    assert provider.configured is True
+
+    registry = StubRegistry(settings, {"manual": provider})  # type: ignore[dict-item]
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+
+    assert outcome.succeeded
+    assert outcome.quote is not None and outcome.quote.rate == Decimal("1.75")

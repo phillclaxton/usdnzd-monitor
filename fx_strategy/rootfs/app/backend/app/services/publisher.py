@@ -24,6 +24,7 @@ from app.home_assistant.entities import (
 from app.home_assistant.mqtt import MqttPublisher, all_definitions, get_publisher
 from app.logging_setup import get_logger
 from app.money import MoneyError, quantize_money, quantize_rate
+from app.scheduler.jobs import build_registry
 from app.schemas.rates import CurrentRateOut, RateChanges
 from app.schemas.settings import Settings
 from app.schemas.strategy import StrategySummaryOut
@@ -90,7 +91,16 @@ async def build_context(session: AsyncSession, settings: Settings) -> EntityCont
         summary = await summary_service.build_summary(session, strategy, settings)
 
     statuses = await rate_service.provider_statuses(session)
-    unhealthy = [status for status in statuses if not status.healthy]
+    # A provider that is merely not set up is not a problem to report. The
+    # manual fallback with no rate entered is the usual case.
+    registry = await build_registry(session, settings)
+    try:
+        unconfigured = {d.name for d in registry.describe() if not d.configured}
+    finally:
+        await registry.aclose()
+    unhealthy = [
+        status for status in statuses if not status.healthy and status.provider not in unconfigured
+    ]
     publisher = get_publisher()
 
     # The obligations book, if the feature is in use. A failure here must not

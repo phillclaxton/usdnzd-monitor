@@ -15,7 +15,6 @@ from app.api.errors import ValidationError
 from app.database import utcnow
 from app.money import ZERO, quantize_rate, safe_divide
 from app.providers.base import QUOTE_TYPE_LABEL, QuoteType, RatePoint
-from app.providers.registry import ProviderRegistry
 from app.scheduler.jobs import build_registry
 from app.schemas.rates import (
     CurrentRateOut,
@@ -336,7 +335,9 @@ async def export_rates(
 
 @router.get("/providers", response_model=list[ProviderStatusOut], summary="Provider health")
 async def provider_health(session: SessionDep, settings: SettingsDep) -> list[ProviderStatusOut]:
-    registry = ProviderRegistry(settings)
+    # Primed with the stored manual rate: a registry built without it would
+    # describe the manual provider as unconfigured even after one was entered.
+    registry = await build_registry(session, settings)
     try:
         descriptions = {item.name: item for item in registry.describe()}
     finally:
@@ -346,6 +347,11 @@ async def provider_health(session: SessionDep, settings: SettingsDep) -> list[Pr
     result: list[ProviderStatusOut] = []
     for name, description in descriptions.items():
         status = stored.get(name)
+        # A provider that is not configured has no failure state worth showing.
+        # Its stored counters can only be historical: the chain stops at the
+        # first success, so a fallback it never reaches can never record a
+        # success to clear them, and a stale red badge would sit there for ever.
+        unconfigured = not description.configured
         result.append(
             ProviderStatusOut(
                 provider=name,
@@ -353,11 +359,15 @@ async def provider_health(session: SessionDep, settings: SettingsDep) -> list[Pr
                 configured=description.configured,
                 healthy=bool(status.healthy) if status else description.configured,
                 last_success_at=status.last_success_at if status else None,
-                last_failure_at=status.last_failure_at if status else None,
-                consecutive_failures=status.consecutive_failures if status else 0,
-                last_error=status.last_error if status else None,
+                last_failure_at=None
+                if unconfigured
+                else (status.last_failure_at if status else None),
+                consecutive_failures=0
+                if unconfigured
+                else (status.consecutive_failures if status else 0),
+                last_error=None if unconfigured else (status.last_error if status else None),
                 last_latency_ms=status.last_latency_ms if status else None,
-                retry_after=status.retry_after if status else None,
+                retry_after=None if unconfigured else (status.retry_after if status else None),
                 reason=description.reason,
             )
         )

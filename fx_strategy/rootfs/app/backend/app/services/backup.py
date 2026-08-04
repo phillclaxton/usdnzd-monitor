@@ -265,7 +265,18 @@ async def diagnostics(
         session, settings.general.source_currency, settings.general.target_currency
     )
     provider_rows = await rate_service.provider_statuses(session)
-    failures = [row for row in provider_rows if not row.healthy]
+    # Not configured is not failing: an unused manual fallback would otherwise
+    # be reported here as a fault.
+    from app.scheduler.jobs import build_registry
+
+    registry = await build_registry(session, settings)
+    try:
+        unconfigured = {d.name for d in registry.describe() if not d.configured}
+    finally:
+        await registry.aclose()
+    failures = [
+        row for row in provider_rows if not row.healthy and row.provider not in unconfigured
+    ]
 
     integrity = await integrity_check()
     ha_status = await get_home_assistant().status()

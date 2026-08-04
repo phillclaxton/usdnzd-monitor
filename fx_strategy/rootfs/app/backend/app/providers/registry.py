@@ -141,12 +141,17 @@ class ProviderRegistry:
                     )
                 )
                 continue
+            # A provider can be constructible and still have nothing to work
+            # with — the manual one with no rate entered. That is "not
+            # configured", not "failing".
+            usable = getattr(provider, "configured", True)
             descriptions.append(
                 ProviderDescription(
                     name=name,
                     display_name=provider.display_name,
-                    configured=True,
+                    configured=usable,
                     supports_history=provider.supports_history,
+                    reason="" if usable else _unconfigured_reason(name),
                 )
             )
         return descriptions
@@ -155,6 +160,12 @@ class ProviderRegistry:
         for provider in self._instances.values():
             await provider.aclose()
         self._instances.clear()
+
+
+def _unconfigured_reason(name: str) -> str:
+    if name in (MANUAL, SIMULATION):
+        return "No manual rate has been entered yet."
+    return "Not configured."
 
 
 def preset_catalogue() -> list[dict[str, object]]:

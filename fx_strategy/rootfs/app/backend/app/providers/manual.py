@@ -13,8 +13,8 @@ from decimal import Decimal
 from app.database import utcnow
 from app.logging_setup import get_logger
 from app.providers.base import (
+    ProviderConfigurationError,
     ProviderHealth,
-    ProviderUnavailableError,
     QuoteType,
     RatePoint,
     RateQuote,
@@ -46,6 +46,9 @@ class ManualProvider:
         self._rate = rate
         self._entered_at = entered_at
         self._simulated = simulated
+        #: Only usable once a rate has been entered. An attribute rather than a
+        #: property so it satisfies the protocol, which declares it settable.
+        self.configured = rate is not None
         if simulated:
             self.name = "simulation"
             self.display_name = "Simulation"
@@ -53,11 +56,9 @@ class ManualProvider:
     async def get_spot_rate(self, source_currency: str, target_currency: str) -> RateQuote:
         source, target = validate_pair(source_currency, target_currency, provider=self.name)
         if self._rate is None:
-            raise ProviderUnavailableError(
-                self.name,
-                "No manual rate has been entered yet.",
-                retryable=False,
-            )
+            # Not an outage: nothing has been entered. Raising an "unavailable"
+            # here made an unused fallback look like a broken provider.
+            raise ProviderConfigurationError(self.name, "No manual rate has been entered yet.")
         return RateQuote(
             provider=self.name,
             source_currency=source,

@@ -198,6 +198,8 @@ class GenericProvider(HttpProviderMixin):
     """Configurable JSON rate provider."""
 
     supports_history = True
+    #: Built only when usable; the registry refuses otherwise.
+    configured = True
 
     def __init__(self, settings: GenericProviderSettings, api_key: str | None) -> None:
         self.name = "generic"

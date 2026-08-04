@@ -27,7 +27,13 @@ from app.logging_setup import get_logger
 from app.models.audit import AuditEventType
 from app.models.rate import ManualRate, ProviderStatus, RateAggregate, RateSample
 from app.money import ZERO, quantize_rate, safe_divide
-from app.providers.base import ProviderError, QuoteType, RatePoint, RateQuote
+from app.providers.base import (
+    ProviderConfigurationError,
+    ProviderError,
+    QuoteType,
+    RatePoint,
+    RateQuote,
+)
 from app.providers.registry import MANUAL, ProviderRegistry
 from app.schemas.settings import Settings
 from app.services import audit
@@ -225,6 +231,24 @@ async def record_provider_success(
         )
 
 
+async def record_provider_unconfigured(
+    session: AsyncSession, provider: str, reason: str
+) -> ProviderStatus:
+    """Note that a provider has nothing to work with yet.
+
+    Deliberately clears any failure state: an obligation-free fallback that was
+    once recorded as failing would otherwise stay that way permanently, since
+    the chain stops at the first success and never reaches it again.
+    """
+    status = await _get_status(session, provider)
+    status.healthy = True
+    status.consecutive_failures = 0
+    status.failing_since = None
+    status.retry_after = None
+    status.last_error = reason
+    return status
+
+
 async def record_provider_failure(
     session: AsyncSession, provider: str, error: str, *, max_backoff: int
 ) -> ProviderStatus:
@@ -298,6 +322,14 @@ async def refresh_rate(
         try:
             provider = registry.create(name)
             quote = await provider.get_spot_rate(source, target)
+        except ProviderConfigurationError as exc:
+            # Not set up is not the same as broken. Recording it as a failure
+            # left an unused fallback showing red for ever, because a provider
+            # the chain never reaches can never record a success to clear it.
+            outcome.errors[name] = exc.message
+            log.info("provider_not_configured", provider=name, reason=exc.message)
+            await record_provider_unconfigured(session, name, exc.message)
+            continue
         except ProviderError as exc:
             outcome.errors[name] = exc.message
             log.warning("provider_failed", provider=name, error=exc.message)

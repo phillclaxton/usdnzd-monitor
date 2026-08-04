@@ -4,6 +4,26 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-08-04
+
+### Fixed
+
+- **The manual fallback was reported as failing when it simply had no rate
+  entered.** It is in the provider chain by default but only reached when
+  everything above it fails, so once a single attempt was recorded against it
+  the state stuck permanently: the chain stops at the first success, so a
+  provider it never reaches can never record a success to clear it. Having
+  nothing entered is now a configuration state, not an outage.
+- That stale failure also turned on the Home Assistant provider-problem sensor
+  and listed the provider under `failing_providers` in the diagnostics bundle,
+  so a perfectly healthy installation reported a fault. Both now ignore
+  providers that are not configured. A configured provider that fails is still
+  reported — the distinction is whether it is set up, not which provider it is.
+- The provider status table described a registry built without the stored
+  manual rate, so the manual provider would have shown as not configured even
+  after a rate was entered. The read-only call sites now use the same primed
+  registry the scheduler does.
+
 ## [1.2.2] - 2026-08-04
 
 ### Fixed
