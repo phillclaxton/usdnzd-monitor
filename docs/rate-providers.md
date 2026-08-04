@@ -79,6 +79,22 @@ Presets fill in the same configurable fields; edit anything afterwards. They are
 tested against each vendor's documented response shape using recorded payloads —
 CI makes no live calls.
 
+## Provider states
+
+| State | Meaning |
+| --- | --- |
+| **Healthy** | Last attempt succeeded |
+| **Failing** | Configured, but the last attempt failed. Backs off, retries |
+| **Not configured** | Present but with nothing to work with — no credential, or no manual rate entered |
+
+**Not configured is not a fault.** The manual fallback is in the chain by
+default and only reached when everything above it fails, so on a working
+installation it usually has nothing entered. It is shown as not configured, it
+does not count towards the Home Assistant provider-problem sensor, and it is not
+listed under failing providers in the diagnostics bundle.
+
+Entering a manual rate makes it configured.
+
 ## Polling
 
 | Setting | Default | Notes |

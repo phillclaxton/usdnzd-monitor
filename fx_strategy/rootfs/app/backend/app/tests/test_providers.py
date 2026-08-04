@@ -105,10 +105,21 @@ async def test_manual_provider_returns_the_entered_rate() -> None:
     assert quote.is_executable is False
 
 
-async def test_manual_provider_fails_loudly_when_nothing_was_entered() -> None:
+async def test_manual_provider_reports_nothing_entered_as_a_configuration_state() -> None:
+    """Not an outage: there is simply nothing to serve yet.
+
+    Raising an "unavailable" here made an unused fallback record a failure, and
+    since the chain stops at the first success it could never record a success
+    to clear it — so it showed as failing for ever.
+    """
     provider = ManualProvider()
-    with pytest.raises(ProviderUnavailableError, match="No manual rate"):
+    assert provider.configured is False
+    with pytest.raises(ProviderConfigurationError, match="No manual rate"):
         await provider.get_spot_rate("USD", "NZD")
+
+
+async def test_a_manual_provider_with_a_rate_is_configured() -> None:
+    assert ManualProvider(rate=Decimal("1.75")).configured is True
 
 
 async def test_manual_provider_marks_simulated_rates() -> None:

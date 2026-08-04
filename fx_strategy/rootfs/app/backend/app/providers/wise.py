@@ -89,6 +89,8 @@ class WiseProvider(HttpProviderMixin):
     name = "wise"
     display_name = "Wise"
     supports_history = True
+    #: Built only when usable; the registry refuses otherwise.
+    configured = True
 
     def __init__(self, settings: WiseProviderSettings, api_token: str | None) -> None:
         self._settings = settings

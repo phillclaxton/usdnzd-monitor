@@ -130,6 +130,10 @@ class FxRateProvider(Protocol):
     name: str
     display_name: str
     supports_history: bool
+    #: False when the provider exists but has nothing to work with yet — no
+    #: credential, no manual rate. That is not a failure, and must not be
+    #: reported as one.
+    configured: bool
 
     async def get_spot_rate(
         self,

@@ -166,3 +166,99 @@ async def test_rate_limiting_protects_the_refresh_endpoint(client: AsyncClient) 
     await client.post("/api/v1/rates/manual", json={"rate": "1.75"})
     statuses = [(await client.post("/api/v1/rates/refresh")).status_code for _ in range(35)]
     assert 429 in statuses
+
+
+# ---------------------------------------------------------------------------
+# An unconfigured provider is not a fault
+# ---------------------------------------------------------------------------
+
+
+async def test_the_manual_provider_shows_as_not_configured_not_failing(
+    client: AsyncClient,
+) -> None:
+    """With nothing entered it is unconfigured, whatever the stored row says."""
+    rows = (await client.get("/api/v1/rates/providers")).json()
+    manual = next(row for row in rows if row["provider"] == "manual")
+
+    assert manual["configured"] is False
+    assert manual["consecutive_failures"] == 0
+    assert manual["retry_after"] is None
+    assert "No manual rate has been entered" in manual["reason"]
+
+
+async def test_a_historical_failure_on_it_is_not_presented_as_current(
+    client: AsyncClient,
+) -> None:
+    """An installation carrying the old bad row sees the corrected state."""
+    from app.database import get_sessionmaker
+    from app.services import rate_service
+
+    async with get_sessionmaker()() as session:
+        await rate_service.record_provider_failure(
+            session, "manual", "No manual rate has been entered yet.", max_backoff=3600
+        )
+        await session.commit()
+
+    rows = (await client.get("/api/v1/rates/providers")).json()
+    manual = next(row for row in rows if row["provider"] == "manual")
+
+    assert manual["configured"] is False
+    assert manual["consecutive_failures"] == 0
+    assert manual["last_failure_at"] is None
+
+
+async def test_entering_a_rate_makes_it_configured(client: AsyncClient) -> None:
+    await client.post("/api/v1/rates/manual", json={"rate": "1.7200"})
+
+    rows = (await client.get("/api/v1/rates/providers")).json()
+    manual = next(row for row in rows if row["provider"] == "manual")
+    assert manual["configured"] is True
+
+
+async def test_an_unconfigured_provider_does_not_make_the_app_report_a_problem(
+    client: AsyncClient,
+) -> None:
+    """The Home Assistant problem sensor and diagnostics both keyed off this."""
+    from app.database import get_sessionmaker
+    from app.services import backup, publisher, rate_service, settings_service
+
+    async with get_sessionmaker()() as session:
+        await rate_service.record_provider_failure(
+            session, "manual", "No manual rate has been entered yet.", max_backoff=3600
+        )
+        await session.commit()
+
+    async with get_sessionmaker()() as session:
+        settings = await settings_service.load_settings(session)
+        context = await publisher.build_context(session, settings)
+        assert context.provider_healthy is True
+        assert "All providers healthy" in context.provider_message
+
+        bundle = await backup.diagnostics(session, settings, include_logs=False)
+        assert bundle["rates"]["failing_providers"] == []
+
+
+async def test_a_genuinely_failing_provider_is_still_reported(client: AsyncClient) -> None:
+    """The fix must not silence real faults.
+
+    The exclusion is keyed on whether a provider is configured, not on its name,
+    so a configured provider that fails is still reported.
+    """
+    from app.database import get_sessionmaker
+    from app.services import publisher, rate_service, settings_service
+
+    # Entering a rate makes the manual provider configured, so a failure
+    # recorded against it is a real one.
+    await client.post("/api/v1/rates/manual", json={"rate": "1.7200"})
+
+    async with get_sessionmaker()() as session:
+        await rate_service.record_provider_failure(
+            session, "manual", "something genuinely broke", max_backoff=3600
+        )
+        await session.commit()
+
+    async with get_sessionmaker()() as session:
+        settings = await settings_service.load_settings(session)
+        context = await publisher.build_context(session, settings)
+        assert context.provider_healthy is False
+        assert "manual" in context.provider_message
