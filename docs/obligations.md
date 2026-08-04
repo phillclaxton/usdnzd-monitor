@@ -131,8 +131,13 @@ refresh rather than reasoning from an old number.
 
 ## Editing and clearing
 
-Select an obligation in the priority table, then **Edit**. Every field is
-editable, including the ones that change what the recommendation says.
+Each row of the priority table carries an **Edit** button, and the obligation's
+name is a link that opens its detail. Both open in a dialog over the page, so
+what you asked for appears where you asked for it. Escape or the ✕ closes it;
+from the detail, **Edit** switches the same dialog to the form.
+
+Every field is editable, including the ones that change what the recommendation
+says.
 
 Optional fields — due date, target rate, maximum acceptable wait — each have a
 **Clear** button beside them. Clearing one removes it: an emptied field is sent

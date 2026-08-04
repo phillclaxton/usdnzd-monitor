@@ -534,3 +534,117 @@ button.is-danger {
   flex: 1;
   min-width: 0;
 }
+
+/* --- Modal dialog -------------------------------------------------------- */
+
+.fx-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, #000 55%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fx-gap);
+  z-index: 50;
+}
+
+.fx-modal {
+  background: var(--fx-surface);
+  border: 1px solid var(--fx-border);
+  border-radius: var(--fx-radius);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  width: min(720px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fx-modal:focus {
+  outline: none;
+}
+
+.fx-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fx-gap-sm);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--fx-border);
+}
+
+.fx-modal-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.fx-modal-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--fx-text-muted);
+}
+
+.fx-modal-body {
+  overflow-y: auto;
+  padding: var(--fx-gap);
+  min-width: 0;
+}
+
+/* The card inside a dialog supplies no chrome of its own. */
+.fx-modal-body .fx-card {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+
+.fx-modal-foot {
+  border-top: 1px solid var(--fx-border);
+  padding: 12px 16px;
+}
+
+/* On a phone the dialog is the screen: a centred box with margins wastes the
+   space and puts the actions somewhere the thumb cannot reach. */
+@media (max-width: 640px) {
+  .fx-modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+  .fx-modal {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+}
+
+/* --- Row actions --------------------------------------------------------- */
+
+.fx-row-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--fx-accent);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.fx-table td .fx-link-button {
+  background: none;
+  border: 1px solid var(--fx-border);
+  border-radius: var(--fx-radius-sm);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--fx-text);
+}
