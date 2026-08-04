@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -258,7 +258,8 @@ describe('ObligationForm', () => {
   it('opens pre-filled when editing an existing obligation', () => {
     renderForm(MORTGAGE);
 
-    expect(screen.getByText(/Edit Mortgage offset/)).toBeInTheDocument();
+    // The heading lives on the dialog; the form says what clearing does.
+    expect(screen.getByText(/Clearing an optional field removes it/)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Name/)).toHaveValue('Mortgage offset');
     expect(screen.getByLabelText(/^Total NZD/)).toHaveValue('256000.0000');
     // The stored fraction is shown as the percentage the user typed.
@@ -267,7 +268,7 @@ describe('ObligationForm', () => {
 
   it('is empty when adding', () => {
     renderForm();
-    expect(screen.getByText('New obligation')).toBeInTheDocument();
+    expect(screen.getByText(/Everything except the name and amount is optional/)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Name/)).toHaveValue('');
   });
 
@@ -335,5 +336,96 @@ describe('ObligationForm', () => {
       'obligations/1',
       expect.objectContaining({ annual_rate: '0.075' }),
     );
+  });
+});
+
+
+describe('the obligations dialog', () => {
+  it('offers a visible Edit on every row rather than a hidden click target', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    // One per obligation, and each is a real button.
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(2);
+  });
+
+  it('opens the detail in a dialog, not further down the page', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Meika repayment' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-label', 'Meika repayment');
+    expect(within(dialog).getByText(/Why it ranks where it does/)).toBeInTheDocument();
+  });
+
+  it('opens the editor in the same dialog, where the button was', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-label', expect.stringContaining('Edit'));
+    expect(within(dialog).getByLabelText(/^Name/)).toBeInTheDocument();
+    // And nothing is rendered outside it that the user would have to scroll to.
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  });
+
+  it('goes from viewing to editing without leaving the dialog', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Meika repayment' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Edit' }));
+
+    expect(await screen.findByRole('dialog')).toHaveAttribute(
+      'aria-label',
+      'Edit Meika repayment',
+    );
+  });
+
+  it('closes on Escape', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Meika repayment' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('closes with the close control', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Meika repayment' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('adds through the same dialog', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add an obligation' }));
+
+    expect(await screen.findByRole('dialog')).toHaveAttribute('aria-label', 'New obligation');
+  });
+
+  it('cancelling an edit returns to the detail rather than closing outright', async () => {
+    renderPage();
+    await screen.findByText('NZD 326,000.00');
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    // Back to the detail for the same obligation.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.getAttribute('aria-label')).not.toContain('Edit');
   });
 });

@@ -4,6 +4,26 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-08-04
+
+### Fixed
+
+- **Viewing and editing an obligation were not discoverable.** The detail
+  appeared as a card further down the page, reached by clicking a row with
+  nothing to indicate it could be clicked, and pressing Edit then opened the
+  form higher up — off-screen on a phone. Both now open in a dialog over the
+  page: the name is a link, every row has a visible **Edit** button, and
+  editing from the detail replaces the contents of the same dialog rather than
+  moving somewhere else.
+- The dialog closes on Escape, on the ✕, or by clicking outside; focus moves
+  into it on open and returns to the control that opened it on close; the page
+  behind does not scroll. On a phone it fills the screen rather than sitting in
+  a box with margins.
+- A rate-service test seeded samples at offsets from "now", which put them
+  either side of UTC midnight and changed how many day buckets existed. It
+  failed only between roughly midnight and 03:00 UTC. Now seeded at fixed
+  timestamps.
+
 ## [1.2.1] - 2026-08-03
 
 ### Fixed

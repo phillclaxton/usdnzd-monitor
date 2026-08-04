@@ -4,6 +4,7 @@
  * `Tag` exists because the specification is strict that a figure must never be
  * shown without saying whether it is gross, an estimate, or an actual result.
  */
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 
 export type Quality = 'gross' | 'estimate' | 'actual' | 'warning' | 'plain';
@@ -139,6 +140,80 @@ export function Field({
       </label>
       {children}
       {error && <span className="fx-error">{error}</span>}
+    </div>
+  );
+}
+
+/**
+ * A modal dialog.
+ *
+ * Content that belongs to a thing you selected has to appear over that thing,
+ * not further down the page where it can be missed entirely — and an editor has
+ * to open where the button that opened it was, not somewhere above the fold.
+ *
+ * Uses a div rather than the native <dialog> element: the behaviour needed here
+ * is small and explicit, and this way it is testable in jsdom, which does not
+ * implement showModal consistently.
+ */
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // Focus moves into the dialog so the keyboard and screen readers follow it.
+    const opener = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+
+    // The page behind must not scroll while a dialog is over it.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+      opener?.focus?.();
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fx-modal-backdrop"
+      // A click on the backdrop closes; a click inside must not.
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="fx-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        ref={panel}
+      >
+        <div className="fx-modal-head">
+          <h2>{title}</h2>
+          <button type="button" className="fx-modal-close" aria-label="Close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="fx-modal-body">{children}</div>
+        {footer && <div className="fx-modal-foot">{footer}</div>}
+      </div>
     </div>
   );
 }

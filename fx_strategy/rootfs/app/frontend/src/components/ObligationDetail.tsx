@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
-import { Banner, Card, Field, Stat } from '@/components/ui';
+import { Banner, Field, Stat } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatMoney, formatRate } from '@/lib/decimal';
 import type { Obligation } from '@/types';
@@ -49,7 +49,10 @@ export default function ObligationDetail({
     obligation.waiting.find((row) => row.days === days)?.net_benefit_nzd ?? null;
 
   return (
-    <Card title={obligation.name} subtitle={obligation.reason}>
+    // No card chrome: this is always shown inside a dialog, which supplies the
+    // heading. Repeating the name here would say it twice.
+    <>
+      <p className="fx-card-subtitle">{obligation.reason}</p>
       {obligation.warnings.map((warning) => (
         <Banner key={warning} tone="warning">
           {warning}
@@ -233,12 +236,9 @@ export default function ObligationDetail({
         <button type="button" disabled={archive.isPending} onClick={() => archive.mutate()}>
           Archive
         </button>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
       </div>
 
       <Banner tone="info">{obligation.disclaimer}</Banner>
-    </Card>
+    </>
   );
 }

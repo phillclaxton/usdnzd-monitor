@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import ObligationForm from '@/components/ObligationForm';
 import ObligationDetail from '@/components/ObligationDetail';
-import { Banner, Card, EmptyState, Loading, Stat, Tag } from '@/components/ui';
+import { Banner, Card, EmptyState, Loading, Modal, Stat, Tag } from '@/components/ui';
 import { api } from '@/lib/api';
 import { compareDecimal, formatMoney, formatRate } from '@/lib/decimal';
 import type { Allocation, Obligation, ObligationPortfolio } from '@/types';
@@ -34,9 +34,11 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 export default function ObligationsPage() {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<number | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<number | null>(null);
+  // What the dialog is showing, if anything. One value rather than three
+  // booleans that could contradict each other.
+  const [dialog, setDialog] = useState<
+    { mode: 'add' } | { mode: 'view' | 'edit'; id: number } | null
+  >(null);
   const [usdAvailable, setUsdAvailable] = useState('');
 
   const obligations = useQuery({
@@ -63,8 +65,7 @@ export default function ObligationsPage() {
 
   const rows = obligations.data ?? [];
   const book = portfolio.data;
-  const detail = rows.find((row) => row.id === selected) ?? null;
-  const edited = rows.find((row) => row.id === editing) ?? null;
+  const active = dialog && dialog.mode !== 'add' ? rows.find((r) => r.id === dialog.id) : undefined;
 
   // Overall rank is the default ordering: it is the one that answers "what next".
   const ordered = [...rows].sort((a, b) => a.overall_rank - b.overall_rank);
@@ -147,35 +148,11 @@ export default function ObligationsPage() {
         )}
 
         <div className="fx-toolbar">
-          <button type="button" className="is-primary" onClick={() => setAdding(true)}>
+          <button type="button" className="is-primary" onClick={() => setDialog({ mode: 'add' })}>
             Add an obligation
           </button>
         </div>
       </Card>
-
-      {adding && (
-        <ObligationForm
-          onDone={() => {
-            setAdding(false);
-            void invalidate();
-          }}
-          onCancel={() => setAdding(false)}
-        />
-      )}
-
-      {edited && (
-        <ObligationForm
-          // Keyed by id so switching between obligations rebuilds the form
-          // rather than showing the previous one's values.
-          key={edited.id}
-          obligation={edited}
-          onDone={() => {
-            setEditing(null);
-            void invalidate();
-          }}
-          onCancel={() => setEditing(null)}
-        />
-      )}
 
       {rows.length === 0 && !obligations.isLoading && (
         <EmptyState title="No obligations recorded" glyph="🧾">
@@ -202,6 +179,7 @@ export default function ObligationsPage() {
                   <th>Next target</th>
                   <th>Break-even days</th>
                   <th className="fx-left">Recommendation</th>
+                  <th className="fx-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -212,13 +190,17 @@ export default function ObligationsPage() {
                   };
                   const breakEven = row.break_even_days_at_improvement['0.01'];
                   return (
-                    <tr
-                      key={row.id}
-                      onClick={() => setSelected(row.id === selected ? null : row.id)}
-                      style={{ cursor: 'pointer' }}
-                    >
+                    <tr key={row.id}>
                       <td className="fx-left">
-                        {row.name}
+                        {/* A button, not a clickable row: the thing you can act
+                            on has to look like it, and be reachable by keyboard. */}
+                        <button
+                          type="button"
+                          className="fx-row-action"
+                          onClick={() => setDialog({ mode: 'view', id: row.id })}
+                        >
+                          {row.name}
+                        </button>
                         {row.relationship_importance === 'high' && (
                           <span className="fx-hint"> · relationship</span>
                         )}
@@ -249,23 +231,64 @@ export default function ObligationsPage() {
                         <Tag quality={action.tone === 'urgent' ? 'warning' : 'plain'} />{' '}
                         {action.label}
                       </td>
+                      <td className="fx-left">
+                        <button
+                          type="button"
+                          className="fx-link-button"
+                          onClick={() => setDialog({ mode: 'edit', id: row.id })}
+                        >
+                          Edit
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <p className="fx-card-subtitle">Select a row for the full working.</p>
+          <p className="fx-card-subtitle">
+            Choose a name to see the full working, or Edit to change it.
+          </p>
         </Card>
       )}
 
-      {detail && (
-        <ObligationDetail
-          obligation={detail}
-          onChanged={invalidate}
-          onClose={() => setSelected(null)}
-          onEdit={() => setEditing(detail.id)}
-        />
+      {dialog?.mode === 'add' && (
+        <Modal title="New obligation" onClose={() => setDialog(null)}>
+          <ObligationForm
+            onDone={() => {
+              setDialog(null);
+              void invalidate();
+            }}
+            onCancel={() => setDialog(null)}
+          />
+        </Modal>
+      )}
+
+      {dialog?.mode === 'view' && active && (
+        <Modal title={active.name} onClose={() => setDialog(null)}>
+          <ObligationDetail
+            obligation={active}
+            onChanged={invalidate}
+            onClose={() => setDialog(null)}
+            // Editing replaces the contents of this same dialog, so the form
+            // opens where the button that asked for it was.
+            onEdit={() => setDialog({ mode: 'edit', id: active.id })}
+          />
+        </Modal>
+      )}
+
+      {dialog?.mode === 'edit' && active && (
+        <Modal title={`Edit ${active.name}`} onClose={() => setDialog(null)}>
+          <ObligationForm
+            key={active.id}
+            obligation={active}
+            onDone={() => {
+              setDialog(null);
+              void invalidate();
+            }}
+            onCancel={() => setDialog({ mode: 'view', id: active.id })}
+          />
+        </Modal>
       )}
 
       {rows.length > 0 && (

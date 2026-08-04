@@ -319,6 +319,23 @@ async def test_between_half_and_full_staleness_reads_as_delayed(
 # ---------------------------------------------------------------------------
 
 
+async def seed_at(session: AsyncSession, rates: list[tuple[datetime, str]]) -> None:
+    """Insert samples at absolute timestamps."""
+    for moment, rate in rates:
+        session.add(
+            RateSample(
+                provider="test",
+                source_currency="USD",
+                target_currency="NZD",
+                rate=Decimal(rate),
+                rate_numeric=float(rate),
+                quote_type=str(QuoteType.MID_MARKET),
+                retrieved_at=moment,
+            )
+        )
+    await session.flush()
+
+
 async def seed_history(session: AsyncSession, rates: list[tuple[int, str]]) -> None:
     """Insert samples at ``hours_ago`` offsets."""
     for hours_ago, rate in rates:
@@ -431,16 +448,28 @@ async def test_aggregates_are_built_before_purging(
 
 
 async def test_aggregate_rebuild_is_idempotent(session: AsyncSession) -> None:
-    await seed_history(session, [(3, "1.70"), (2, "1.80")])
-    window_start = utcnow() - timedelta(days=1)
+    """Day buckets, rebuilt twice, produce one row and the same figures.
+
+    Seeded at fixed timestamps rather than "hours ago": relative offsets put the
+    samples either side of UTC midnight when the suite runs late in the day,
+    which changes how many day buckets exist and where the bucket start falls
+    relative to the query window. That made this fail only between midnight and
+    about 03:00 UTC.
+    """
+    day = datetime(2026, 7, 15, tzinfo=UTC)
+    await seed_at(
+        session, [(day + timedelta(hours=9), "1.70"), (day + timedelta(hours=14), "1.80")]
+    )
+
+    window_start, window_end = day, day + timedelta(days=1)
     first = await rate_service.build_aggregates(
-        session, "USD", "NZD", bucket="day", start=window_start, end=utcnow()
+        session, "USD", "NZD", bucket="day", start=window_start, end=window_end
     )
     second = await rate_service.build_aggregates(
-        session, "USD", "NZD", bucket="day", start=window_start, end=utcnow()
+        session, "USD", "NZD", bucket="day", start=window_start, end=window_end
     )
     assert first == second == 1
-    rows = await rate_service.aggregates(session, "USD", "NZD", "day", window_start, utcnow())
+    rows = await rate_service.aggregates(session, "USD", "NZD", "day", window_start, window_end)
     assert len(rows) == 1
     assert rows[0].low_rate == Decimal("1.70000000")
     assert rows[0].high_rate == Decimal("1.80000000")

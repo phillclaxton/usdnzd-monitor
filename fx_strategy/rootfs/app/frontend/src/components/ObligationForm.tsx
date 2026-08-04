@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
-import { Banner, Card, Field } from '@/components/ui';
+import { Banner, Field } from '@/components/ui';
 import { api } from '@/lib/api';
 import type {
   InterestBasis,
@@ -99,14 +99,13 @@ export default function ObligationForm({
   const create = save;
 
   return (
-    <Card
-      title={editing ? `Edit ${obligation.name}` : 'New obligation'}
-      subtitle={
-        editing
+    // The dialog supplies the heading.
+    <>
+      <p className="fx-card-subtitle">
+        {editing
           ? 'Clearing an optional field removes it. An emptied date, target rate or waiting limit is deleted rather than left as it was.'
-          : 'Everything except the name and amount is optional.'
-      }
-    >
+          : 'Everything except the name and amount is optional.'}
+      </p>
       {create.isError && <Banner tone="error">{(create.error as Error).message}</Banner>}
 
       <Field label="Name" htmlFor="ob-name">
@@ -290,6 +289,6 @@ export default function ObligationForm({
           Cancel
         </button>
       </div>
-    </Card>
+    </>
   );
 }
