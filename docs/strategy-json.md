@@ -116,9 +116,27 @@ the same ones.
 
 ## Field and JSON editing together
 
-The two views edit the same strategy but do not share an unsaved draft. If the
-field editor has unsaved changes when you switch to JSON, the panel says so —
-the document comes from the server, not from the form.
+**The two views are two renderings of one strategy.** Switching between them
+converts what is on screen; it does not reload from anywhere. Unsaved work
+survives the switch in both directions:
+
+- Change a field, switch to JSON, and the change is in the document.
+- Edit the document, switch back, and the fields show it.
+
+If the JSON cannot be read as an object, the switch to fields is **refused**
+with the reason. Showing you fields that no longer match the document you are
+looking at would be worse than staying put.
+
+Saving from either view updates the other. A save from the JSON view refreshes
+the fields from what the server actually stored, so the two never drift.
+
+The field editor carries every part of the strategy, including the parts it has
+no input for — dated requirements, per-tranche minimum rates and deadlines, the
+rate provider. Both views replace the whole definition when they save, so
+anything either one failed to carry would be silently deleted on the next save.
+
+If the strategy is changed somewhere else while you have unsaved edits, the page
+says so and leaves your edits alone until you choose to reload.
 
 ## An archived strategy
 

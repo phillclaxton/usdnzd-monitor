@@ -334,6 +334,21 @@ export interface Strategy {
   requirements: Requirement[];
 }
 
+export interface RequirementInput {
+  due_date: string;
+  required_source_amount?: string | null;
+  required_percentage?: string | null;
+  description?: string;
+}
+
+/**
+ * A strategy as the create and update endpoints accept it.
+ *
+ * This must stay a *complete* mirror of the server's `StrategyIn`. Both `PUT
+ * /strategies/{id}` and the JSON document replace the whole definition, so a
+ * field missing here is a field silently cleared on save — and the field editor
+ * and the JSON view would stop describing the same strategy.
+ */
 export interface StrategyInput {
   name: string;
   source_currency: string;
@@ -341,14 +356,17 @@ export interface StrategyInput {
   initial_source_amount: string;
   funds_available_amount: string;
   funds_arrival_date?: string | null;
+  strategy_start_date?: string | null;
   final_deadline?: string | null;
   minimum_acceptable_rate?: string | null;
   walk_away_rate?: string | null;
   require_targets_in_order?: boolean;
   fee_model_id?: number | null;
+  rate_provider_id?: string | null;
   timezone?: string;
   notes?: string;
   tranches: TrancheInput[];
+  requirements?: RequirementInput[];
 }
 
 export interface AllocationIssue {

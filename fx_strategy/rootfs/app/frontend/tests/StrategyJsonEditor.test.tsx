@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import StrategyJsonEditor from '@/components/StrategyJsonEditor';
@@ -41,11 +42,27 @@ const NO_CHANGES: DocumentPreview = {
 
 let preview: DocumentPreview = NO_CHANGES;
 
-function renderEditor(strategyId: number | null = 1) {
+/**
+ * The text belongs to the page, not the component, so the harness holds it —
+ * that is what lets the field editor and the JSON view stay the same value.
+ */
+function Harness({ strategyId, initial }: { strategyId: number | null; initial: string }) {
+  const [text, setText] = useState(initial);
+  return (
+    <StrategyJsonEditor
+      strategyId={strategyId}
+      value={text}
+      onChange={setText}
+      onSaved={() => {}}
+    />
+  );
+}
+
+function renderEditor(strategyId: number | null = 1, initial: string = TEXT) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <StrategyJsonEditor strategyId={strategyId} fallbackText="{}" />
+      <Harness strategyId={strategyId} initial={initial} />
     </QueryClientProvider>,
   );
 }
@@ -61,7 +78,7 @@ afterEach(() => {
 });
 
 describe('StrategyJsonEditor', () => {
-  it('loads the stored strategy into the editor', async () => {
+  it('shows the document text the page gives it', async () => {
     renderEditor();
     const box = await screen.findByLabelText('Strategy JSON');
     expect(box).toHaveValue(TEXT);
@@ -176,7 +193,7 @@ describe('StrategyJsonEditor', () => {
       if (path.endsWith('/preview')) return preview as never;
       return {} as never;
     });
-    renderEditor(null);
+    renderEditor(null, '{}');
 
     await screen.findByLabelText('Strategy JSON');
     await userEvent.click(screen.getByRole('button', { name: 'Create from JSON' }));

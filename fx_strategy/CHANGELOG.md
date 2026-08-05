@@ -4,6 +4,31 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-08-05
+
+### Fixed
+
+- **The field editor and the JSON view showed different strategies.** The fields
+  were copied from the server once when the page loaded and never refreshed, so
+  after saving from the JSON view the form still showed the old plan — and
+  saving from it would have put the old plan back. Both views are now two
+  renderings of one value: switching converts what is on screen instead of
+  reloading, so an unsaved change made in either view is there in the other, and
+  a save from one updates the other from what the server actually stored.
+- **Saving from the field editor silently deleted parts of the strategy.** The
+  form's payload left out dated requirements, per-tranche minimum rates and
+  deadlines, the rate provider and the start date. Both the field editor and the
+  JSON document replace the whole definition on save, so every one of those was
+  cleared the next time the form was used — and pasting a document that set them
+  made this far easier to hit. The draft now carries every field the server
+  accepts, and a test asserts the round trip is lossless.
+- If the JSON cannot be read as an object, switching to the fields is refused
+  with the reason rather than showing values that no longer match the document
+  on screen.
+- If the strategy is changed elsewhere while you have unsaved edits, the page
+  says so and leaves the edits alone until you choose to reload, instead of
+  either discarding your work or hiding the change.
+
 ## [1.3.0] - 2026-08-05
 
 ### Added

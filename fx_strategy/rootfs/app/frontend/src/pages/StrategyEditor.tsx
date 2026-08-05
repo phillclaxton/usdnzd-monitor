@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import StrategyJsonEditor from '@/components/StrategyJsonEditor';
 import { Banner, Card, EmptyState, Field, Loading, Tag } from '@/components/ui';
@@ -14,23 +14,13 @@ import {
 import { useCurrentRate } from '@/hooks/useRates';
 import { useSettings } from '@/hooks/useSettings';
 import { compareDecimal, formatDecimal, formatMoney, formatRate, roundTo } from '@/lib/decimal';
-import type { StrategyInput, TrancheInput } from '@/types';
-
-function blankStrategy(source: string, target: string): StrategyInput {
-  return {
-    name: `${source} to ${target}`,
-    source_currency: source,
-    target_currency: target,
-    initial_source_amount: '800000',
-    funds_available_amount: '0',
-    final_deadline: null,
-    walk_away_rate: null,
-    minimum_acceptable_rate: null,
-    require_targets_in_order: false,
-    fee_model_id: null,
-    tranches: [],
-  };
-}
+import {
+  blankDraft,
+  draftFromJson,
+  draftFromStrategy,
+  draftToJson,
+} from '@/lib/strategyDraft';
+import type { Strategy, StrategyInput, TrancheInput } from '@/types';
 
 /**
  * Allocation totals are computed here as well as on the server. The client copy
@@ -89,39 +79,45 @@ export default function StrategyEditor() {
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [mode, setMode] = useState<'fields' | 'json'>('fields');
+  /** The JSON view's text. Owned here so a mode switch converts rather than reloads. */
+  const [json, setJson] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  /** `updated_at` of the strategy the draft was built from. */
+  const [loadedFrom, setLoadedFrom] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+
+  const load = useCallback((strategy: Strategy) => {
+    setDraft(draftFromStrategy(strategy));
+    setLoadedFrom(strategy.updated_at);
+    setStale(false);
+    setDirty(false);
+  }, []);
 
   useEffect(() => {
-    if (draft !== null || !general) return;
+    if (!general) return;
     if (existing.data) {
-      setDraft({
-        name: existing.data.name,
-        source_currency: existing.data.source_currency,
-        target_currency: existing.data.target_currency,
-        initial_source_amount: existing.data.initial_source_amount,
-        funds_available_amount: existing.data.funds_available_amount,
-        funds_arrival_date: existing.data.funds_arrival_date,
-        final_deadline: existing.data.final_deadline,
-        minimum_acceptable_rate: existing.data.minimum_acceptable_rate,
-        walk_away_rate: existing.data.walk_away_rate,
-        require_targets_in_order: existing.data.require_targets_in_order,
-        fee_model_id: existing.data.fee_model_id,
-        timezone: existing.data.timezone,
-        notes: existing.data.notes,
-        tranches: existing.data.tranches.map((tranche) => ({
-          sequence: tranche.sequence,
-          name: tranche.name,
-          allocation_type: tranche.allocation_type,
-          allocation_value: tranche.allocation_value,
-          target_rate: tranche.target_rate,
-          intended_for_auto_conversion: tranche.intended_for_auto_conversion,
-          notifications_enabled: tranche.notifications_enabled,
-          wise_auto_conversion_reference: tranche.wise_auto_conversion_reference,
-        })),
-      });
-    } else if (!existingId && !strategies.isLoading) {
-      setDraft(blankStrategy(general.source_currency, general.target_currency));
+      // Rebuild whenever the saved strategy moves on — a save from the JSON
+      // view is exactly that. Without this the fields keep showing the copy
+      // taken when the page loaded, and the two views quietly disagree.
+      if (existing.data.updated_at === loadedFrom) return;
+      if (dirty) {
+        setStale(true);
+        return;
+      }
+      load(existing.data);
+    } else if (draft === null && !existingId && !strategies.isLoading) {
+      setDraft(blankDraft(general.source_currency, general.target_currency, general.timezone));
     }
-  }, [draft, existing.data, existingId, general, strategies.isLoading]);
+  }, [
+    dirty,
+    draft,
+    existing.data,
+    existingId,
+    general,
+    load,
+    loadedFrom,
+    strategies.isLoading,
+  ]);
 
   const allocation = useMemo(
     () => (draft ? allocationSummary(draft) : null),
@@ -198,6 +194,42 @@ export default function StrategyEditor() {
     else create.mutate(draft, { onSuccess });
   };
 
+  /**
+   * The two modes are two renderings of one draft, so switching converts it.
+   * Reloading either side from the server instead would drop unsaved work and
+   * let the views describe different strategies.
+   */
+  const showJson = () => {
+    setSwitchError(null);
+    setSaved(false);
+    setJson(draftToJson(draft));
+    setMode('json');
+  };
+
+  const showFields = () => {
+    if (json === null) {
+      setMode('fields');
+      return;
+    }
+    const result = draftFromJson(json, draft);
+    if (!result.ok) {
+      // Staying put is the honest outcome: the fields cannot show a document
+      // that cannot be read, and silently keeping the old values would be the
+      // very mismatch this is meant to prevent.
+      setSwitchError(result.message);
+      return;
+    }
+    setSwitchError(null);
+    setDraft(result.draft);
+    setMode('fields');
+  };
+
+  /** After a save from the JSON view the server is ahead; take the draft from it. */
+  const jsonSaved = (strategy: Strategy) => {
+    load(strategy);
+    setJson(draftToJson(draftFromStrategy(strategy)));
+  };
+
   const mutation = existingId ? update : create;
   const projectedGross = draft.tranches.reduce((accumulator, tranche) => {
     const amount =
@@ -223,12 +255,27 @@ export default function StrategyEditor() {
           </Banner>
         ))}
 
+      {stale && (
+        <Banner tone="warning">
+          This strategy was saved somewhere else while you were editing, so the fields below are
+          out of date. You have unsaved changes, so they have been left alone.{' '}
+          <button
+            type="button"
+            className="fx-row-action"
+            onClick={() => existing.data && load(existing.data)}
+          >
+            Discard my changes and reload
+          </button>
+        </Banner>
+      )}
+      {switchError && <Banner tone="error">{switchError}</Banner>}
+
       <div className="fx-toolbar" role="group" aria-label="Editing mode">
         <button
           type="button"
           aria-pressed={mode === 'fields'}
           className={mode === 'fields' ? 'is-primary' : undefined}
-          onClick={() => setMode('fields')}
+          onClick={showFields}
         >
           Edit fields
         </button>
@@ -236,17 +283,18 @@ export default function StrategyEditor() {
           type="button"
           aria-pressed={mode === 'json'}
           className={mode === 'json' ? 'is-primary' : undefined}
-          onClick={() => setMode('json')}
+          onClick={showJson}
         >
           Edit as JSON
         </button>
       </div>
 
-      {mode === 'json' && (
+      {mode === 'json' && json !== null && (
         <StrategyJsonEditor
           strategyId={existingId}
-          fallbackText={JSON.stringify(draft, null, 2)}
-          fieldEditorHasUnsavedChanges={dirty && existingId !== null}
+          value={json}
+          onChange={setJson}
+          onSaved={jsonSaved}
         />
       )}
 

@@ -9,10 +9,10 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-import { Banner, Card, Loading } from '@/components/ui';
+import { Banner, Card } from '@/components/ui';
 import { useDocumentPreview, useSaveDocument, useStrategyDocument } from '@/hooks/useStrategy';
 import { ApiError } from '@/lib/api';
-import type { DocumentProblem } from '@/types';
+import type { DocumentProblem, Strategy } from '@/types';
 
 /** Delay before edited text is sent for checking, in milliseconds. */
 const CHECK_DELAY = 400;
@@ -43,33 +43,33 @@ function describe(problem: DocumentProblem): string {
 
 export default function StrategyJsonEditor({
   strategyId,
-  fallbackText = '',
-  fieldEditorHasUnsavedChanges = false,
+  value,
+  onChange,
+  onSaved,
 }: {
   strategyId: number | null;
-  /** Used when there is no saved strategy yet, so a new plan starts from the draft. */
-  fallbackText?: string;
-  fieldEditorHasUnsavedChanges?: boolean;
+  /**
+   * The document text. Owned by the page, not by this component: it is the same
+   * draft the field editor shows, rendered as JSON, so switching between the
+   * two views converts rather than reloads and unsaved work survives.
+   */
+  value: string;
+  onChange: (text: string) => void;
+  onSaved: (strategy: Strategy) => void;
 }) {
   const stored = useStrategyDocument(strategyId);
   const save = useSaveDocument(strategyId);
   const box = useRef<HTMLTextAreaElement | null>(null);
 
-  const [text, setText] = useState<string | null>(null);
   const [copyNote, setCopyNote] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const source = strategyId === null ? fallbackText : (stored.data?.text ?? null);
+  const text = value;
+  /** The last saved document, for "Discard changes". */
+  const source = stored.data?.text ?? null;
 
-  useEffect(() => {
-    // Load once. A refetch must not discard what the user has typed.
-    if (text === null && source !== null) setText(source);
-  }, [source, text]);
-
-  const settled = useDebounced(text ?? '');
+  const settled = useDebounced(text);
   const report = useDocumentPreview(strategyId, settled);
-
-  if (text === null) return <Loading label="Loading the strategy document…" />;
 
   const problems = report.data?.valid === false ? report.data.problems : problemsFrom(save.error);
   const changes = report.data?.valid ? report.data.changes : [];
@@ -77,7 +77,7 @@ export default function StrategyJsonEditor({
   const blocked = report.data?.valid === false;
 
   const edit = (next: string) => {
-    setText(next);
+    onChange(next);
     setSaved(false);
     setCopyNote(null);
     save.reset();
@@ -109,7 +109,14 @@ export default function StrategyJsonEditor({
 
   const submit = () => {
     setSaved(false);
-    save.mutate(text, { onSuccess: () => setSaved(true) });
+    save.mutate(text, {
+      onSuccess: (strategy) => {
+        setSaved(true);
+        // Hand the saved strategy back so the field editor takes its values
+        // from the same place, rather than keeping the copy it loaded earlier.
+        onSaved(strategy);
+      },
+    });
   };
 
   return (
@@ -122,13 +129,6 @@ export default function StrategyJsonEditor({
         conversions, alert history and the audit trail are facts rather than settings, and saving
         a document never alters them.
       </Banner>
-
-      {fieldEditorHasUnsavedChanges && (
-        <Banner tone="warning">
-          The field editor has unsaved changes, and they are not in this document. Save there
-          first if you want to keep them.
-        </Banner>
-      )}
 
       <label htmlFor="strategy-json">Strategy JSON</label>
       <textarea
