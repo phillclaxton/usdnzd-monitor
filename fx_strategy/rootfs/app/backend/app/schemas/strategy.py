@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -426,3 +426,56 @@ class TemplateOut(Schema):
     name: str
     description: str
     tranches: list[TrancheIn]
+
+
+# ---------------------------------------------------------------------------
+# JSON document editing
+# ---------------------------------------------------------------------------
+
+
+class DocumentIn(StrictSchema):
+    """Pasted text, exactly as typed.
+
+    The text is carried as a string rather than as a parsed object so that a
+    syntax error can be reported with a line and column. Letting FastAPI parse
+    it would collapse every mistake into one unlocatable message.
+    """
+
+    text: str = Field(max_length=200_000)
+
+
+class DocumentOut(Schema):
+    strategy_id: int | None = None
+    name: str
+    #: The document as text, indented and ready for an editor.
+    text: str
+    #: The same content already parsed, for callers that want the structure.
+    document: dict[str, Any]
+    #: Field name to the reason it is not part of the document.
+    omitted: dict[str, str] = Field(default_factory=dict)
+
+
+class DocumentProblemOut(Schema):
+    path: str
+    message: str
+    line: int | None = None
+    column: int | None = None
+
+
+class DocumentChangeOut(Schema):
+    path: str
+    before: str
+    after: str
+
+
+class DocumentPreviewOut(Schema):
+    """What saving the pasted document would do, computed without saving it."""
+
+    valid: bool
+    problems: list[DocumentProblemOut] = Field(default_factory=list)
+    changes: list[DocumentChangeOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    tranches_added: list[int] = Field(default_factory=list)
+    tranches_removed: list[int] = Field(default_factory=list)
+    tranches_retargeted: list[int] = Field(default_factory=list)
+    conversions_preserved: int = 0
