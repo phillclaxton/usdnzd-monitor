@@ -23,7 +23,7 @@ class AppConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="FX_", extra="ignore")
 
-    app_version: str = "1.2.3"
+    app_version: str = "1.3.0"
     build_arch: str = "unknown"
     log_level: LogLevel = "info"
 

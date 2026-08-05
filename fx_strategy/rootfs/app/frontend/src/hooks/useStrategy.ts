@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api';
 import type {
+  DocumentPreview,
   FeeModel,
   Scenarios,
   Strategy,
+  StrategyDocument,
   StrategyInput,
   StrategySummary,
   StrategyTemplate,
@@ -98,6 +100,45 @@ export function useStrategyAction(id: number) {
   return useMutation({
     mutationFn: (action: 'activate' | 'pause' | 'resume' | 'complete' | 'duplicate') =>
       api.post<Strategy>(`strategies/${id}/${action}`),
+    onSuccess: invalidate,
+  });
+}
+
+/** The strategy as JSON, for the document editor. */
+export function useStrategyDocument(id: number | null) {
+  return useQuery({
+    queryKey: ['strategy', 'document', id],
+    queryFn: () => api.get<StrategyDocument>(`strategies/${id}/document`),
+    enabled: id !== null,
+  });
+}
+
+/**
+ * A dry run of a pasted document.
+ *
+ * Modelled as a query rather than a mutation because the text is the key: it
+ * writes nothing, repeated checks of the same text are answered from cache, and
+ * an answer for text the user has since edited can never overwrite a newer one.
+ */
+export function useDocumentPreview(id: number | null, text: string) {
+  const path = id === null ? 'strategies/document/preview' : `strategies/${id}/document/preview`;
+  return useQuery({
+    queryKey: ['strategy', 'document-preview', id, text],
+    queryFn: () => api.post<DocumentPreview>(path, { text }),
+    enabled: text.trim().length > 0,
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
+/** Apply a pasted document, creating the strategy if there is not one yet. */
+export function useSaveDocument(id: number | null) {
+  const invalidate = useStrategyInvalidation();
+  return useMutation({
+    mutationFn: (text: string) =>
+      id === null
+        ? api.post<Strategy>('strategies/document', { text })
+        : api.put<Strategy>(`strategies/${id}/document`, { text }),
     onSuccess: invalidate,
   });
 }

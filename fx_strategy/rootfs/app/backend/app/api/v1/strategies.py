@@ -13,6 +13,11 @@ from app.models.strategy import Strategy, StrategyStatus
 from app.schemas.common import Message
 from app.schemas.strategy import (
     AllocationIssue,
+    DocumentChangeOut,
+    DocumentIn,
+    DocumentOut,
+    DocumentPreviewOut,
+    DocumentProblemOut,
     FeeModelIn,
     FeeModelOut,
     ScenariosOut,
@@ -23,6 +28,7 @@ from app.schemas.strategy import (
     ValidationOut,
 )
 from app.services import audit, rate_service, settings_service, summary_service
+from app.services import strategy_document as document
 from app.services import strategy_service as strategies
 from app.services.strategy_service import StrategyError
 
@@ -196,6 +202,132 @@ async def delete_strategy(strategy_id: int, session: SessionDep, actor: ActorDep
             else "Strategy deleted."
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# JSON document editing
+# ---------------------------------------------------------------------------
+#
+# The document is the same shape ``POST /strategies`` and ``PUT /strategies/{id}``
+# already accept, so a copied document is a valid request body and nothing has
+# to be kept in step with a second format.
+
+
+def _preview_out(result: document.Preview) -> DocumentPreviewOut:
+    return DocumentPreviewOut(
+        valid=result.valid,
+        problems=[
+            DocumentProblemOut(
+                path=problem.path,
+                message=problem.message,
+                line=problem.line,
+                column=problem.column,
+            )
+            for problem in result.problems
+        ],
+        changes=[
+            DocumentChangeOut(path=change.path, before=change.before, after=change.after)
+            for change in result.changes
+        ],
+        warnings=result.warnings,
+        tranches_added=result.tranches_added,
+        tranches_removed=result.tranches_removed,
+        tranches_retargeted=result.tranches_retargeted,
+        conversions_preserved=result.conversions_preserved,
+    )
+
+
+def _parse_or_422(text: str) -> StrategyIn:
+    """Parse pasted text, turning a document error into a located 422.
+
+    The problems are returned as error details so the editor can point at the
+    offending line or field rather than saying only that something is wrong.
+    """
+    try:
+        return document.parse(text)
+    except document.DocumentError as exc:
+        raise ValidationError(
+            exc.message,
+            details=[
+                {
+                    "path": problem.path,
+                    "message": problem.message,
+                    "line": problem.line,
+                    "column": problem.column,
+                }
+                for problem in exc.problems
+            ],
+        ) from exc
+
+
+@router.post(
+    "/strategies/document/preview",
+    response_model=DocumentPreviewOut,
+    summary="Check a document for a new strategy",
+)
+async def preview_new_document(payload: DocumentIn) -> DocumentPreviewOut:
+    """Validate pasted text without creating anything."""
+    return _preview_out(document.preview(None, payload.text))
+
+
+@router.post(
+    "/strategies/document",
+    response_model=StrategyOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a strategy from a pasted document",
+)
+async def create_strategy_from_document(
+    payload: DocumentIn, session: SessionDep, settings: SettingsDep, actor: ActorDep
+) -> StrategyOut:
+    parsed = _parse_or_422(payload.text)
+    return await create_strategy(parsed, session, settings, actor)
+
+
+@router.get(
+    "/strategies/{strategy_id}/document",
+    response_model=DocumentOut,
+    summary="The strategy as an editable JSON document",
+)
+async def read_strategy_document(strategy_id: int, session: SessionDep) -> DocumentOut:
+    strategy = await _load(session, strategy_id)
+    return DocumentOut(
+        strategy_id=strategy.id,
+        name=strategy.name,
+        text=document.to_json(strategy),
+        document=document.to_document(strategy),
+        omitted=document.OMITTED,
+    )
+
+
+@router.post(
+    "/strategies/{strategy_id}/document/preview",
+    response_model=DocumentPreviewOut,
+    summary="What saving this document would change",
+)
+async def preview_strategy_document(
+    strategy_id: int, payload: DocumentIn, session: SessionDep
+) -> DocumentPreviewOut:
+    """A dry run. Nothing is written, whatever the document says."""
+    strategy = await _load(session, strategy_id)
+    return _preview_out(document.preview(strategy, payload.text))
+
+
+@router.put(
+    "/strategies/{strategy_id}/document",
+    response_model=StrategyOut,
+    summary="Replace a strategy from a pasted document",
+)
+async def replace_strategy_document(
+    strategy_id: int, payload: DocumentIn, session: SessionDep, actor: ActorDep
+) -> StrategyOut:
+    """Apply the document.
+
+    This goes through the same update path as the field editor, so tranche
+    identity is kept by sequence number and recorded conversions, alert state
+    and the audit trail are unaffected.
+    """
+    parsed = _parse_or_422(payload.text)
+    return await update_strategy(strategy_id, parsed, session, actor)
 
 
 # ---------------------------------------------------------------------------

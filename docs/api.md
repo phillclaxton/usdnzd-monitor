@@ -79,6 +79,29 @@ obligations" figures appear only when `usd_on_hand` is supplied.
 | `GET` | `/strategy-templates` | Recommended ladder, equal tranches, monitor-only |
 | `GET`/`POST`/`DELETE` | `/fee-models` | Fee assumptions |
 
+### As a JSON document
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/strategies/{id}/document` | The strategy as editable JSON |
+| `POST` | `/strategies/{id}/document/preview` | What saving that text would change. Writes nothing |
+| `PUT` | `/strategies/{id}/document` | Apply the text |
+| `POST` | `/strategies/document/preview` | Check text for a strategy that does not exist yet |
+| `POST` | `/strategies/document` | Create from pasted text |
+
+The body is `{"text": "…"}` — the document as typed, not as a parsed object, so
+a syntax error can be reported with a line and column instead of collapsing
+into one unlocatable message. The document itself is exactly the shape `POST
+/strategies` and `PUT /strategies/{id}` accept, so a copied document is already
+a valid request body.
+
+A preview returns `valid`, `problems`, `changes`, `warnings`,
+`tranches_added` / `_removed` / `_retargeted`, and `conversions_preserved`. A
+rejected `PUT` or `POST` returns 422 with the same located problems in
+`error.details`.
+
+See [the strategy document guide](strategy-json.md).
+
 ## Tranches
 
 | Method | Path | Purpose |

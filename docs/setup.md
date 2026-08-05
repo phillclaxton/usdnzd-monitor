@@ -53,6 +53,10 @@ dashboard then shows what converting the remainder now would produce against
 what holding out for a higher target would add, and what stays exposed while you
 wait.
 
+The Strategy page also has an **Edit as JSON** view if you would rather paste a
+whole plan than fill in fields. See
+[editing a strategy as JSON](strategy-json.md).
+
 ## 6. Fees
 
 | Option | Result |

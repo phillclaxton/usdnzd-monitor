@@ -71,6 +71,7 @@ Guides:
 - [Installation](../docs/installation.md)
 - [First-run setup](../docs/setup.md)
 - [Rate providers](../docs/rate-providers.md)
+- [Editing a strategy as JSON](../docs/strategy-json.md)
 - [Wise API setup](../docs/wise.md)
 - [MQTT setup](../docs/mqtt.md)
 - [Backup and restore](../docs/backup-restore.md)

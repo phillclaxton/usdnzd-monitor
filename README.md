@@ -69,6 +69,7 @@ Assistant login and needs no port forwarding.
 | [Home Assistant entities](docs/mqtt.md) | MQTT discovery, every entity published, the REST fallback |
 | [Backup and restore](docs/backup-restore.md) | What a backup contains, what it deliberately omits |
 | [Debts and priorities](docs/obligations.md) | Obligations, break-even calculations, priority model |
+| [Strategy as JSON](docs/strategy-json.md) | Copying, pasting and editing a whole strategy as one document |
 | [CSV formats](docs/csv-formats.md) | Import and export column definitions |
 | [Troubleshooting](docs/troubleshooting.md) | Common problems and the diagnostics bundle |
 | [Architecture](docs/architecture.md) | How the pieces fit together |
