@@ -648,3 +648,38 @@ button.is-danger {
   cursor: pointer;
   color: var(--fx-text);
 }
+
+/* --- JSON document editor ------------------------------------------------ */
+
+/* A monospace box with tabs left alone: JSON is read by column, and a
+   proportional font makes an indented ladder unreadable. */
+.fx-code-editor {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  resize: vertical;
+  margin-bottom: var(--fx-gap-sm);
+}
+
+.fx-issue-list {
+  margin: 0 0 var(--fx-gap);
+  padding-left: 20px;
+  font-size: 0.85rem;
+}
+
+.fx-issue-list li {
+  margin-bottom: 4px;
+}
+
+.fx-issue-list code,
+.fx-table code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  background: var(--fx-surface-raised);
+  border-radius: var(--fx-radius-sm);
+  padding: 1px 5px;
+}

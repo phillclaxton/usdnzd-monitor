@@ -364,6 +364,44 @@ export interface ValidationReport {
   issues: AllocationIssue[];
 }
 
+/**
+ * The strategy as an editable JSON document. `text` is the same content as
+ * `document`, indented for an editor; both are exactly the shape the create and
+ * update endpoints accept, so what is copied out can be pasted back in.
+ */
+export interface StrategyDocument {
+  strategy_id: number | null;
+  name: string;
+  text: string;
+  document: Record<string, unknown>;
+  omitted: Record<string, string>;
+}
+
+/** Something wrong in a pasted document, and where to find it. */
+export interface DocumentProblem {
+  path: string;
+  message: string;
+  line: number | null;
+  column: number | null;
+}
+
+export interface DocumentChange {
+  path: string;
+  before: string;
+  after: string;
+}
+
+export interface DocumentPreview {
+  valid: boolean;
+  problems: DocumentProblem[];
+  changes: DocumentChange[];
+  warnings: string[];
+  tranches_added: number[];
+  tranches_removed: number[];
+  tranches_retargeted: number[];
+  conversions_preserved: number;
+}
+
 export interface Fee {
   available: boolean;
   label: string;

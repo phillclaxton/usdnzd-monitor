@@ -166,6 +166,34 @@ test('deep links work under the Ingress prefix', async ({ page }) => {
   }
 });
 
+test('the strategy can be read as a JSON document that matches what is saved', async ({
+  page,
+}) => {
+  await page.goto(`${INGRESS}/strategy`);
+  await page.getByRole('button', { name: 'Edit as JSON' }).click();
+
+  const box = page.getByLabel('Strategy JSON');
+  await expect(box).toBeVisible();
+  const text = await box.inputValue();
+  const document = JSON.parse(text) as {
+    tranches: { target_rate: string }[];
+    status?: unknown;
+  };
+
+  // What is copied out is the plan, not the record of what happened.
+  expect(document.status).toBeUndefined();
+  expect(document.tranches.map((tranche) => tranche.target_rate)).toEqual([
+    '1.72000000',
+    '1.74000000',
+    '1.76000000',
+    '1.78000000',
+    '1.80000000',
+  ]);
+
+  // Untouched, the document is checked against the server and reports nothing.
+  await expect(page.getByText('Saving it would change nothing')).toBeVisible();
+});
+
 test('simulation mode shows its banner and can be reset', async ({ page, request }) => {
   await request.put(api('simulation'), { data: { enabled: true } });
   await page.goto(`${INGRESS}/`);

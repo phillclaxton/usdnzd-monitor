@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import StrategyJsonEditor from '@/components/StrategyJsonEditor';
 import { Banner, Card, EmptyState, Field, Loading, Tag } from '@/components/ui';
 import {
   useCreateStrategy,
@@ -86,6 +87,8 @@ export default function StrategyEditor() {
   const ratePlaces = settings.data?.formatting.rate_decimal_places ?? 4;
   const [draft, setDraft] = useState<StrategyInput | null>(null);
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [mode, setMode] = useState<'fields' | 'json'>('fields');
 
   useEffect(() => {
     if (draft !== null || !general) return;
@@ -131,6 +134,7 @@ export default function StrategyEditor() {
 
   const patch = (changes: Partial<StrategyInput>) => {
     setSaved(false);
+    setDirty(true);
     setDraft({ ...draft, ...changes });
   };
 
@@ -186,7 +190,10 @@ export default function StrategyEditor() {
 
   const save = () => {
     setSaved(false);
-    const onSuccess = () => setSaved(true);
+    const onSuccess = () => {
+      setSaved(true);
+      setDirty(false);
+    };
     if (existingId) update.mutate(draft, { onSuccess });
     else create.mutate(draft, { onSuccess });
   };
@@ -209,12 +216,42 @@ export default function StrategyEditor() {
 
       {mutation.isError && <Banner tone="error">{(mutation.error as Error).message}</Banner>}
       {saved && <Banner tone="info">Strategy saved.</Banner>}
-      {allocation.errors.map((error) => (
-        <Banner key={error} tone="warning">
-          {error}
-        </Banner>
-      ))}
+      {mode === 'fields' &&
+        allocation.errors.map((error) => (
+          <Banner key={error} tone="warning">
+            {error}
+          </Banner>
+        ))}
 
+      <div className="fx-toolbar" role="group" aria-label="Editing mode">
+        <button
+          type="button"
+          aria-pressed={mode === 'fields'}
+          className={mode === 'fields' ? 'is-primary' : undefined}
+          onClick={() => setMode('fields')}
+        >
+          Edit fields
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === 'json'}
+          className={mode === 'json' ? 'is-primary' : undefined}
+          onClick={() => setMode('json')}
+        >
+          Edit as JSON
+        </button>
+      </div>
+
+      {mode === 'json' && (
+        <StrategyJsonEditor
+          strategyId={existingId}
+          fallbackText={JSON.stringify(draft, null, 2)}
+          fieldEditorHasUnsavedChanges={dirty && existingId !== null}
+        />
+      )}
+
+      {mode === 'fields' && (
+        <>
       <Card title="Amount and timing">
         <Field label="Strategy name" htmlFor="name">
           <input id="name" value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
@@ -489,11 +526,15 @@ export default function StrategyEditor() {
           </div>
         </div>
       </Card>
+        </>
+      )}
 
       <div className="fx-toolbar">
-        <button type="button" className="is-primary" onClick={save} disabled={mutation.isPending}>
-          {mutation.isPending ? 'Saving…' : existingId ? 'Save strategy' : 'Create strategy'}
-        </button>
+        {mode === 'fields' && (
+          <button type="button" className="is-primary" onClick={save} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Saving…' : existingId ? 'Save strategy' : 'Create strategy'}
+          </button>
+        )}
         {existingId && (
           <>
             <button type="button" onClick={() => action.mutate('activate')}>
