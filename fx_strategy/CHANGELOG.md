@@ -4,6 +4,41 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-05
+
+### Added
+
+- **A strategy can be edited as a JSON document.** Strategy → **Edit as JSON**
+  shows the whole plan as one document to copy, paste and save, instead of
+  working through the fields one at a time. The document is exactly the shape
+  the create and update endpoints already accept, so what is copied out of one
+  installation is a valid request body for another — there is no separate
+  export format that could drift from the real one.
+- The document is checked against the server as it is edited. Every problem
+  says where it is: a syntax error gives a line and column, a validation failure
+  gives the field path (`tranches[2].target_rate`). "Invalid JSON" on its own is
+  useless when the document is a hundred lines long.
+- Before saving, the panel lists what would change field by field, and warns
+  about the consequences that are easy to miss in a paste: a tranche being
+  removed that has recorded conversions against it, a moved target rate
+  resetting its reached-and-notified state, and how many recorded conversions
+  the edit leaves untouched.
+- New endpoints: `GET`/`PUT /strategies/{id}/document`,
+  `POST /strategies/{id}/document/preview`, `POST /strategies/document` and
+  `POST /strategies/document/preview`. A preview writes nothing; a rejected save
+  returns the same located problems in `error.details`.
+- [Editing a strategy as JSON](../docs/strategy-json.md) documents the format,
+  what it deliberately omits, and how tranche identity is preserved.
+
+### Notes
+
+- Saving a document goes through the same update path as the field editor, so
+  tranche identity is kept by sequence number and recorded conversions, alert
+  state and the audit trail are unaffected. The document carries the **plan**;
+  it never carries or alters the record of what happened.
+- Money and rates in the document are JSON strings, never numbers. A JSON number
+  is a binary float and `1.72` does not survive the trip intact.
+
 ## [1.2.3] - 2026-08-04
 
 ### Fixed
