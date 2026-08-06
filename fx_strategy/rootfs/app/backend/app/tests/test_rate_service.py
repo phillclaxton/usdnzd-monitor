@@ -542,6 +542,109 @@ async def test_a_stale_failure_on_an_unconfigured_provider_is_cleared(
     assert cleared.consecutive_failures == 0
 
 
+async def test_a_stale_failure_clears_even_when_the_fallback_is_never_reached(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """The case the earlier fix missed, and the one that actually happens.
+
+    Clearing the state when the provider is reached is no help on a working
+    installation, because a healthy primary means the fallback is never
+    reached. The state has to be corrected whether or not it was polled.
+    """
+    from app.providers.manual import ManualProvider
+
+    await rate_service.record_provider_failure(
+        session, "manual", "No manual rate has been entered yet.", max_backoff=3600
+    )
+    stale = await session.get(ProviderStatus, "manual")
+    assert stale is not None and stale.healthy is False and stale.failing_since is not None
+
+    registry = StubRegistry(settings, {"primary": StubProvider("primary", Decimal("1.75"))})
+    registry._stubs["manual"] = ManualProvider()  # type: ignore[assignment]
+    registry.chain = lambda: ["primary", "manual"]  # type: ignore[method-assign]
+
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+
+    # The primary answered, so the chain stopped there and manual was untouched.
+    assert outcome.used_provider == "primary"
+    assert "manual" not in outcome.attempted
+
+    cleared = await session.get(ProviderStatus, "manual")
+    assert cleared is not None
+    assert cleared.healthy is True
+    assert cleared.failing_since is None
+    assert cleared.consecutive_failures == 0
+    assert "manual" in outcome.unconfigured
+
+
+async def test_a_provider_dropped_from_the_chain_stops_being_reported_as_failing(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """Turning a provider off must not leave it failing for ever."""
+    await rate_service.record_provider_failure(
+        session, "generic", "connection refused", max_backoff=3600
+    )
+
+    # Generic is still set up and constructible — it has simply stopped being
+    # chosen as primary, secondary or fallback.
+    registry = StubRegistry(
+        settings,
+        {
+            "primary": StubProvider("primary", Decimal("1.75")),
+            "generic": StubProvider("generic", Decimal("1.75")),
+        },
+    )
+    registry.chain = lambda: ["primary"]  # type: ignore[method-assign]
+    registry.comparison_pair = lambda: ["primary"]  # type: ignore[method-assign]
+
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+    assert "generic" not in outcome.unconfigured
+
+    cleared = await session.get(ProviderStatus, "generic")
+    assert cleared is not None
+    assert cleared.healthy is True
+    assert cleared.failing_since is None
+    assert cleared.last_error == rate_service.NOT_IN_USE
+
+
+async def test_a_provider_that_is_in_use_keeps_the_failure_it_earned(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """The reconciliation must not quietly forgive a real outage."""
+    registry = StubRegistry(
+        settings,
+        {
+            "primary": StubProvider("primary", None, error="connection refused"),
+            "secondary": StubProvider("secondary", Decimal("1.75")),
+        },
+    )
+    await rate_service.refresh_rate(session, settings, registry)
+
+    failed = await session.get(ProviderStatus, "primary")
+    assert failed is not None
+    assert failed.healthy is False
+    assert failed.failing_since is not None
+    assert failed.last_error is not None and "connection refused" in failed.last_error
+
+
+async def test_describing_a_provider_that_raises_does_not_stop_the_refresh(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """An adapter bug must not take rate collection down with it."""
+
+    class Exploding(StubRegistry):
+        def create(self, name: str) -> Any:
+            if name == "wise":
+                raise RuntimeError("adapter bug")
+            return super().create(name)
+
+    registry = Exploding(settings, {"primary": StubProvider("primary", Decimal("1.75"))})
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+
+    assert outcome.succeeded
+    assert "wise" in outcome.unconfigured
+
+
 async def test_a_configured_manual_provider_still_works(
     session: AsyncSession, settings: Settings
 ) -> None:

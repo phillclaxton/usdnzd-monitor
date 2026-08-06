@@ -224,6 +224,56 @@ async def test_a_long_provider_outage_notifies(
     assert "stale rate" in outage[0]["message"]
 
 
+async def test_a_provider_with_nothing_entered_is_never_alerted_on(
+    session: AsyncSession,
+    settings: Settings,
+    fake_home_assistant: FakeHomeAssistant,
+) -> None:
+    """The manual fallback, days "down", with a healthy primary above it.
+
+    This is the alert a working installation used to get at three in the
+    morning: "Rate provider manual has been failing for 5119 minutes — no
+    manual rate has been entered yet." Nothing was wrong. Nothing was chosen.
+    """
+    session.add(
+        ProviderStatus(
+            provider="manual",
+            healthy=False,
+            failing_since=utcnow() - timedelta(days=3, hours=13),
+            consecutive_failures=1,
+            last_error="No manual rate has been entered yet.",
+        )
+    )
+    await session.flush()
+
+    await monitor.run_after_refresh(session, settings, outcome(unconfigured={"manual"}))
+
+    assert not [c for c in fake_home_assistant.calls if "failing" in c["title"]]
+
+
+async def test_a_configured_provider_that_fails_is_still_alerted_on(
+    session: AsyncSession,
+    settings: Settings,
+    fake_home_assistant: FakeHomeAssistant,
+) -> None:
+    """The suppression is about being unconfigured, not about being quiet."""
+    session.add(
+        ProviderStatus(
+            provider="wise",
+            healthy=False,
+            failing_since=utcnow() - timedelta(hours=2),
+            consecutive_failures=9,
+            last_error="connection refused",
+        )
+    )
+    await session.flush()
+
+    await monitor.run_after_refresh(session, settings, outcome(unconfigured={"manual"}))
+
+    outage = [c for c in fake_home_assistant.calls if "failing" in c["title"]]
+    assert outage and "connection refused" in outage[0]["message"]
+
+
 async def test_queued_notifications_are_retried_on_the_next_cycle(
     session: AsyncSession, settings: Settings
 ) -> None:

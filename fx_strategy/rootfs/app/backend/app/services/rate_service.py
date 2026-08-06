@@ -61,6 +61,8 @@ class RefreshOutcome:
     disagreement: Decimal | None = None
     disagreement_exceeded: bool = False
     comparison: dict[str, str] = field(default_factory=dict)
+    #: Providers with nothing to work with. Not a fault, and never alerted on.
+    unconfigured: set[str] = field(default_factory=set)
 
     @property
     def succeeded(self) -> bool:
@@ -249,6 +251,47 @@ async def record_provider_unconfigured(
     return status
 
 
+#: Why a provider that is present but not being polled is not an outage.
+NOT_IN_USE = "Not in use: not selected as primary, secondary or fallback."
+
+
+async def reconcile_unpolled_providers(
+    session: AsyncSession, registry: ProviderRegistry
+) -> set[str]:
+    """Clear failure state for providers this installation is not polling.
+
+    A provider only fails when it is asked for a rate. The manual fallback sits
+    behind the primary, so on a working installation it is never reached — and
+    the chain stops at the first success, so a provider it never reaches can
+    never record a success to clear an old failure. One bad poll days ago would
+    otherwise leave it reported as failing for ever.
+
+    Recording that when the provider *is* reached is not enough, precisely
+    because the healthy case never reaches it. This runs every refresh, over
+    every stored status, so the state is corrected whether or not the provider
+    was polled.
+
+    Returns the names that are not configured, for callers that must not treat
+    that as a fault.
+    """
+    in_use = set(registry.chain()) | set(registry.comparison_pair())
+    descriptions = {item.name: item for item in registry.describe()}
+    unconfigured = {name for name, item in descriptions.items() if not item.configured}
+
+    for status in await provider_statuses(session):
+        name = status.provider
+        if name in in_use and name not in unconfigured:
+            # Being polled and set up: whatever state it is in, it earned.
+            continue
+        described = descriptions.get(name)
+        reason = described.reason if described and not described.configured else NOT_IN_USE
+        if not status.healthy or status.failing_since is not None:
+            log.info("provider_state_cleared", provider=name, reason=reason)
+        await record_provider_unconfigured(session, name, reason or NOT_IN_USE)
+
+    return unconfigured
+
+
 async def record_provider_failure(
     session: AsyncSession, provider: str, error: str, *, max_backoff: int
 ) -> ProviderStatus:
@@ -309,6 +352,11 @@ async def refresh_rate(
     source, target = general.source_currency, general.target_currency
     outcome = RefreshOutcome()
     now = utcnow()
+
+    # Before polling, correct the state of everything this installation is not
+    # polling. Doing it here rather than only when a provider is reached is the
+    # whole point: the healthy case never reaches the fallback.
+    outcome.unconfigured = await reconcile_unpolled_providers(session, registry)
 
     for name in registry.chain():
         outcome.attempted.append(name)
