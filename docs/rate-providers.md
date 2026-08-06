@@ -99,14 +99,20 @@ Entering a manual rate makes it configured.
 
 ### A provider only fails when it is asked
 
-Every refresh, the app corrects the recorded state of every provider it is *not*
-polling — the ones with nothing entered, and the ones no longer chosen. This is
-not the same as recording the state when a provider is reached, and the
-difference matters: the chain stops at the first success, so on a healthy
-installation the fallback is never reached at all. A failure recorded against it
-once would otherwise stand for ever, with no way to clear it, and would keep
-raising "has been failing for *N* minutes" alerts about a provider nobody
-selected.
+Every refresh, the app corrects the recorded state of every provider that
+refresh **did not ask** — and only a provider it did ask can be reported as
+failing or alerted on.
+
+Being in the chain is not being asked, and being configured is not either. The
+chain stops at the first success, so while the primary answers, the fallback
+behind it is never contacted — whether or not a manual rate has been entered
+against it. A failure recorded once would otherwise stand for ever, with nothing
+able to clear it, and would keep raising "has been failing for *N* minutes"
+alerts about a provider that is not being used.
+
+A provider skipped *because* it is backing off still counts as in use: not
+asking it is a consequence of it being broken, so it keeps its state and still
+alerts.
 
 If you have seen such an alert, it clears itself on the next poll after
 upgrading. Nothing needs to be reset by hand.
