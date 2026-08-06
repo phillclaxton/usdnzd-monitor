@@ -562,6 +562,8 @@ async def test_a_stale_failure_clears_even_when_the_fallback_is_never_reached(
     registry = StubRegistry(settings, {"primary": StubProvider("primary", Decimal("1.75"))})
     registry._stubs["manual"] = ManualProvider()  # type: ignore[assignment]
     registry.chain = lambda: ["primary", "manual"]  # type: ignore[method-assign]
+    # The fallback, not the secondary: nothing consults it while the primary answers.
+    registry.comparison_pair = lambda: ["primary"]  # type: ignore[method-assign]
 
     outcome = await rate_service.refresh_rate(session, settings, registry)
 
@@ -575,6 +577,62 @@ async def test_a_stale_failure_clears_even_when_the_fallback_is_never_reached(
     assert cleared.failing_since is None
     assert cleared.consecutive_failures == 0
     assert "manual" in outcome.unconfigured
+
+
+async def test_a_configured_fallback_behind_a_healthy_primary_also_clears(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """Being in the chain is not being polled, and being set up is not either.
+
+    1.3.2 skipped any provider that was configured and in the chain, on the
+    reasoning that it had earned its state. The manual fallback is both of
+    those things and is still never contacted while the primary answers, so an
+    installation with a manual rate stored kept alerting exactly as before.
+    """
+    from app.providers.manual import ManualProvider
+
+    await rate_service.record_provider_failure(
+        session, "manual", "No manual rate has been entered yet.", max_backoff=3600
+    )
+
+    registry = StubRegistry(settings, {"primary": StubProvider("primary", Decimal("1.75"))})
+    # A rate has been entered, so this provider is configured.
+    registry._stubs["manual"] = ManualProvider(rate=Decimal("1.75"))  # type: ignore[assignment]
+    registry.chain = lambda: ["primary", "manual"]  # type: ignore[method-assign]
+    registry.comparison_pair = lambda: ["primary"]  # type: ignore[method-assign]
+
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+
+    assert "manual" not in outcome.polled
+    # Configured, so it is not excused as "nothing to work with" — it is
+    # excused because nothing asked it.
+    assert "manual" not in outcome.unconfigured
+
+    cleared = await session.get(ProviderStatus, "manual")
+    assert cleared is not None
+    assert cleared.healthy is True
+    assert cleared.failing_since is None
+    assert cleared.last_error == rate_service.NOT_REACHED
+
+
+async def test_a_secondary_compared_for_disagreement_counts_as_polled(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """A provider consulted only for the disagreement check is still in use."""
+    registry = StubRegistry(
+        settings,
+        {
+            "primary": StubProvider("primary", Decimal("1.75")),
+            "secondary": StubProvider("secondary", None, error="connection refused"),
+        },
+    )
+    registry.chain = lambda: ["primary"]  # type: ignore[method-assign]
+
+    outcome = await rate_service.refresh_rate(session, settings, registry)
+
+    assert outcome.used_provider == "primary"
+    assert "secondary" in outcome.polled
+    assert "unavailable" in outcome.comparison["secondary"]
 
 
 async def test_a_provider_dropped_from_the_chain_stops_being_reported_as_failing(

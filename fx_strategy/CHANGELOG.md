@@ -4,6 +4,33 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-08-06
+
+### Fixed
+
+- **The manual fallback still alerted on 1.3.2 if a manual rate had ever been
+  entered.** 1.3.2 excused a provider from the reconciliation when it was "in
+  the chain and configured", on the reasoning that it had earned whatever state
+  it was in. The manual fallback is both of those things and is *still* never
+  contacted while the primary answers — so on an installation with a manual
+  rate stored, nothing changed and the alert kept arriving every six hours.
+
+  The test is now what the refresh **actually asked**, not what is configured
+  and not what is in the chain. Only a provider that was asked can be reported
+  as failing; every other stored status is corrected on each poll. A provider
+  skipped *because* it is backing off still counts as in use, so a real outage
+  is unaffected.
+- A provider consulted only for the disagreement comparison now counts as in
+  use, and one that turns out to have nothing to work with is recorded as
+  unconfigured there too, matching the main chain.
+
+### Note
+
+The message in one of these alerts is the error recorded **at the time of the
+failure**, not a description of the provider now — "No manual rate has been
+entered yet" can appear on an installation that has one. That is what made
+1.3.2 look like a complete fix when it was not.
+
 ## [1.3.2] - 2026-08-06
 
 ### Fixed

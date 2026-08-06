@@ -38,6 +38,10 @@ usually reads "No manual rate has been entered yet" — it was a stale state tha
 had no way to clear itself, because the chain stops at the first success and so
 never reached that provider again.
 
+Note that the message in such an alert is the error recorded **at the time of
+the failure**, not a description of the provider now. "No manual rate has been
+entered yet" can appear on an installation that does have one.
+
 It corrects itself on the first poll after upgrading. Nothing to reset by hand.
 If a provider you *have* chosen is named, the alert is real: check its
 credential and the network.

@@ -63,6 +63,9 @@ class RefreshOutcome:
     comparison: dict[str, str] = field(default_factory=dict)
     #: Providers with nothing to work with. Not a fault, and never alerted on.
     unconfigured: set[str] = field(default_factory=set)
+    #: Providers this cycle actually asked, including any skipped for backoff.
+    #: Only these can be said to be failing.
+    polled: set[str] = field(default_factory=set)
 
     @property
     def succeeded(self) -> bool:
@@ -253,38 +256,46 @@ async def record_provider_unconfigured(
 
 #: Why a provider that is present but not being polled is not an outage.
 NOT_IN_USE = "Not in use: not selected as primary, secondary or fallback."
+NOT_REACHED = "Not polled: a provider ahead of it in the chain answered."
 
 
 async def reconcile_unpolled_providers(
-    session: AsyncSession, registry: ProviderRegistry
+    session: AsyncSession, registry: ProviderRegistry, polled: set[str]
 ) -> set[str]:
-    """Clear failure state for providers this installation is not polling.
+    """Clear failure state for every provider this cycle did not ask.
 
-    A provider only fails when it is asked for a rate. The manual fallback sits
-    behind the primary, so on a working installation it is never reached — and
-    the chain stops at the first success, so a provider it never reaches can
-    never record a success to clear an old failure. One bad poll days ago would
-    otherwise leave it reported as failing for ever.
+    A provider only fails when it is asked for a rate, and *being in the chain
+    is not being asked*. The manual fallback sits behind the primary, so while
+    the primary answers the fallback is never reached — and the chain stops at
+    the first success, so it can never record a success to clear an old
+    failure either. One bad poll days ago would otherwise stand for ever.
 
-    Recording that when the provider *is* reached is not enough, precisely
-    because the healthy case never reaches it. This runs every refresh, over
-    every stored status, so the state is corrected whether or not the provider
-    was polled.
+    That is why the test here is what was actually polled, not what is
+    configured and not what is in the chain. Both of those are true of a
+    fallback that has not been contacted since the day it failed.
 
-    Returns the names that are not configured, for callers that must not treat
-    that as a fault.
+    ``polled`` includes providers deliberately skipped because they are backing
+    off: not asking a provider *because* it is broken is still using it.
+
+    Returns the names that have nothing to work with, for callers that must not
+    treat that as a fault.
     """
-    in_use = set(registry.chain()) | set(registry.comparison_pair())
     descriptions = {item.name: item for item in registry.describe()}
     unconfigured = {name for name, item in descriptions.items() if not item.configured}
+    in_chain = set(registry.chain()) | set(registry.comparison_pair())
 
     for status in await provider_statuses(session):
         name = status.provider
-        if name in in_use and name not in unconfigured:
-            # Being polled and set up: whatever state it is in, it earned.
+        if name in polled:
+            # Asked this cycle: whatever state it is in, it earned.
             continue
         described = descriptions.get(name)
-        reason = described.reason if described and not described.configured else NOT_IN_USE
+        if described is not None and not described.configured:
+            reason = described.reason
+        elif name in in_chain:
+            reason = NOT_REACHED
+        else:
+            reason = NOT_IN_USE
         if not status.healthy or status.failing_since is not None:
             log.info("provider_state_cleared", provider=name, reason=reason)
         await record_provider_unconfigured(session, name, reason or NOT_IN_USE)
@@ -353,13 +364,9 @@ async def refresh_rate(
     outcome = RefreshOutcome()
     now = utcnow()
 
-    # Before polling, correct the state of everything this installation is not
-    # polling. Doing it here rather than only when a provider is reached is the
-    # whole point: the healthy case never reaches the fallback.
-    outcome.unconfigured = await reconcile_unpolled_providers(session, registry)
-
     for name in registry.chain():
         outcome.attempted.append(name)
+        outcome.polled.add(name)
         if respect_backoff:
             status = await session.get(ProviderStatus, name)
             if status and status.retry_after and status.retry_after > now:
@@ -413,6 +420,10 @@ async def refresh_rate(
             after={"attempted": outcome.attempted, "errors": outcome.errors},
             actor=actor,
         )
+
+    # Last, once everything that was going to be asked has been asked: correct
+    # the recorded state of every provider this cycle did not ask.
+    outcome.unconfigured = await reconcile_unpolled_providers(session, registry, outcome.polled)
     return outcome
 
 
@@ -436,6 +447,9 @@ async def _evaluate_disagreement(
     general = settings.general
     now = utcnow()
     for name in names:
+        # Compared against, so it counts as used this cycle even if the
+        # comparison is skipped below.
+        outcome.polled.add(name)
         status = await session.get(ProviderStatus, name)
         if status and status.retry_after and status.retry_after > now:
             # A provider that is backing off is not woken up merely to be
@@ -445,6 +459,11 @@ async def _evaluate_disagreement(
         try:
             provider = registry.create(name)
             other = await provider.get_spot_rate(general.source_currency, general.target_currency)
+        except ProviderConfigurationError as exc:
+            # Same rule as the chain: nothing to work with is not a failure.
+            outcome.comparison[name] = f"not configured: {exc.message}"
+            await record_provider_unconfigured(session, name, exc.message)
+            continue
         except ProviderError as exc:
             outcome.comparison[name] = f"unavailable: {exc.message}"
             continue

@@ -198,7 +198,7 @@ async def test_a_provider_down_briefly_does_not_notify(
         )
     )
     await session.flush()
-    await monitor.run_after_refresh(session, settings, outcome())
+    await monitor.run_after_refresh(session, settings, outcome(polled={"generic"}))
     assert not [c for c in fake_home_assistant.calls if "provider" in c["title"].lower()]
 
 
@@ -217,7 +217,7 @@ async def test_a_long_provider_outage_notifies(
         )
     )
     await session.flush()
-    await monitor.run_after_refresh(session, settings, outcome())
+    await monitor.run_after_refresh(session, settings, outcome(polled={"generic"}))
     outage = [c for c in fake_home_assistant.calls if "failing" in c["title"]]
     assert outage
     assert "connection refused" in outage[0]["message"]
@@ -246,7 +246,10 @@ async def test_a_provider_with_nothing_entered_is_never_alerted_on(
     )
     await session.flush()
 
-    await monitor.run_after_refresh(session, settings, outcome(unconfigured={"manual"}))
+    # Polled or not, the answer is the same: nothing entered is not an outage.
+    await monitor.run_after_refresh(
+        session, settings, outcome(polled={"wise", "manual"}, unconfigured={"manual"})
+    )
 
     assert not [c for c in fake_home_assistant.calls if "failing" in c["title"]]
 
@@ -268,7 +271,9 @@ async def test_a_configured_provider_that_fails_is_still_alerted_on(
     )
     await session.flush()
 
-    await monitor.run_after_refresh(session, settings, outcome(unconfigured={"manual"}))
+    await monitor.run_after_refresh(
+        session, settings, outcome(polled={"wise"}, unconfigured={"manual"})
+    )
 
     outage = [c for c in fake_home_assistant.calls if "failing" in c["title"]]
     assert outage and "connection refused" in outage[0]["message"]
