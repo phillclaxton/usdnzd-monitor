@@ -130,14 +130,21 @@ class ProviderRegistry:
         for name in PROVIDER_NAMES:
             try:
                 provider = self.create(name)
-            except ProviderConfigurationError as exc:
+            except Exception as exc:
+                # Deliberately broad. This is a reporting call on the polling
+                # path, so an adapter that raises something unexpected must be
+                # described as unusable, not stop the refresh. The reason is
+                # shown in the settings panel either way.
+                reason = getattr(exc, "message", None) or f"{type(exc).__name__}: {exc}"
+                if not isinstance(exc, ProviderConfigurationError):
+                    log.warning("provider_describe_failed", provider=name, error=reason)
                 descriptions.append(
                     ProviderDescription(
                         name=name,
                         display_name=name.replace("_", " ").title(),
                         configured=False,
                         supports_history=False,
-                        reason=exc.message,
+                        reason=str(reason),
                     )
                 )
                 continue

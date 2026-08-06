@@ -86,14 +86,30 @@ CI makes no live calls.
 | **Healthy** | Last attempt succeeded |
 | **Failing** | Configured, but the last attempt failed. Backs off, retries |
 | **Not configured** | Present but with nothing to work with — no credential, or no manual rate entered |
+| **Not in use** | Set up, but not chosen as primary, secondary or fallback |
 
 **Not configured is not a fault.** The manual fallback is in the chain by
 default and only reached when everything above it fails, so on a working
 installation it usually has nothing entered. It is shown as not configured, it
-does not count towards the Home Assistant provider-problem sensor, and it is not
-listed under failing providers in the diagnostics bundle.
+does not count towards the Home Assistant provider-problem sensor, it is not
+listed under failing providers in the diagnostics bundle, and **it never sends a
+notification.**
 
 Entering a manual rate makes it configured.
+
+### A provider only fails when it is asked
+
+Every refresh, the app corrects the recorded state of every provider it is *not*
+polling — the ones with nothing entered, and the ones no longer chosen. This is
+not the same as recording the state when a provider is reached, and the
+difference matters: the chain stops at the first success, so on a healthy
+installation the fallback is never reached at all. A failure recorded against it
+once would otherwise stand for ever, with no way to clear it, and would keep
+raising "has been failing for *N* minutes" alerts about a provider nobody
+selected.
+
+If you have seen such an alert, it clears itself on the next poll after
+upgrading. Nothing needs to be reset by hand.
 
 ## Polling
 

@@ -30,6 +30,18 @@ credentials scrubbed.
 
 The app never substitutes a stale rate for a fresh one. If it says stale, it is.
 
+## "Rate provider *X* has been failing for *N* minutes" about a provider you never chose
+
+A provider that is not being polled cannot fail, and is no longer reported as
+failing or alerted on. If you saw this about the manual fallback — the alert
+usually reads "No manual rate has been entered yet" — it was a stale state that
+had no way to clear itself, because the chain stops at the first success and so
+never reached that provider again.
+
+It corrects itself on the first poll after upgrading. Nothing to reset by hand.
+If a provider you *have* chosen is named, the alert is real: check its
+credential and the network.
+
 ## Notifications are not arriving
 
 Work down this list — it matches the order the delivery rules apply:

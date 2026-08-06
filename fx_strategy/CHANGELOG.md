@@ -4,6 +4,33 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-08-06
+
+### Fixed
+
+- **A provider nobody selected kept raising critical alerts.** "Rate provider
+  manual has been failing for 5119 minutes — no manual rate has been entered
+  yet" on an installation where the manual fallback was neither chosen nor
+  needed. 1.2.3 stopped that state counting towards the Home Assistant
+  problem sensor and the diagnostics bundle, but never touched the
+  notification, which read the same stale row and woke people up about it.
+- The state itself could not clear. 1.2.3 corrected it when the provider was
+  polled — but the chain stops at the first success, so on a healthy
+  installation the fallback is never polled, and a failure recorded once stood
+  for ever. Every refresh now corrects the recorded state of **every provider
+  it is not polling**, whether or not that provider was reached. An
+  installation carrying the bad state fixes itself on the first poll after
+  upgrading; nothing needs resetting by hand.
+- A provider you stop using — dropped as primary, secondary or fallback — no
+  longer stays reported as failing on whatever error it last saw. It is
+  reported as not in use, which is what it is.
+- A provider that is genuinely configured and genuinely failing still alerts,
+  unchanged. The suppression is about not being set up, not about being quiet.
+- An adapter that raised an unexpected error while the app described the
+  provider list could stop a refresh outright. Describing a provider now
+  reports the problem instead of propagating it, since it runs on the polling
+  path.
+
 ## [1.3.1] - 2026-08-05
 
 ### Fixed

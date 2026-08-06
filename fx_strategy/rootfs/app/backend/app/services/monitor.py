@@ -222,11 +222,17 @@ async def _check_provider_health(
 
     A single failed poll is not worth waking someone for; a provider that has
     been down for half an hour is.
+
+    A provider with nothing to work with is never alerted on, however long its
+    status row has said so. "No manual rate has been entered yet" is a setting
+    the user has not filled in, not an outage at three in the morning.
     """
     threshold = timedelta(seconds=settings.providers.error_notify_after_seconds)
     now = utcnow()
     for status in await rate_service.provider_statuses(session):
         if status.healthy or status.failing_since is None:
+            continue
+        if status.provider in outcome.unconfigured:
             continue
         down_for = now - status.failing_since
         if down_for < threshold:
