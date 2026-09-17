@@ -203,6 +203,33 @@ export default function DiagnosticsPage() {
         </p>
       </Card>
 
+      {/*
+        Only while there is something to export. "Debts and conversion priorities" is
+        retired; its data is kept and a normal backup carries it, but offering a
+        download of an empty file for ever would be clutter. The card removes itself.
+      */}
+      {(data?.database.counts.obligations ?? 0) > 0 && (
+        <Card
+          title="Retired: debts and conversion priorities"
+          subtitle="The feature is gone. Its data is kept, and every backup still contains it."
+          actions={
+            <a
+              href={api.url('legacy-export')}
+              download
+              className="fx-tag"
+              style={{ textDecoration: 'none' }}
+            >
+              Download retired obligations data
+            </a>
+          }
+        >
+          <p className="fx-stat-note">
+            {data?.database.counts.obligations} obligation(s) are still stored. Mortgage and offset
+            figures now come from your FX position instead.
+          </p>
+        </Card>
+      )}
+
       {data && (
         <>
           <Card title="Application">
