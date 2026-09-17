@@ -18,15 +18,22 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import utcnow
 from app.logging_setup import get_logger
 from app.models.audit import AuditEventType
 from app.models.rate import ManualRate, ProviderStatus, RateAggregate, RateSample
-from app.money import ZERO, quantize_rate, safe_divide
+from app.money import (
+    DISPLAY_QUANT,
+    TARGET_QUANT,
+    ZERO,
+    quantize_rate,
+    safe_divide,
+)
 from app.providers.base import (
     ProviderConfigurationError,
     ProviderError,
@@ -66,6 +73,8 @@ class RefreshOutcome:
     #: Providers this cycle actually asked, including any skipped for backoff.
     #: Only these can be said to be failing.
     polled: set[str] = field(default_factory=set)
+    #: Sample IDs stored but refused by the plausibility guard.
+    refused: list[int] = field(default_factory=list)
 
     @property
     def succeeded(self) -> bool:
@@ -401,6 +410,36 @@ async def refresh_rate(
             )
             continue
 
+        verdict = await assess_plausibility(session, settings, quote)
+        if not verdict.accepted:
+            # The call succeeded, so the provider is healthy; the number is what
+            # is in doubt. Stored and excluded so the chart stays clean while
+            # the evidence survives, reported so nothing is hidden, and the
+            # chain carries on to whoever is next.
+            refused = await store_sample(session, quote)
+            refused.excluded_at = utcnow()
+            refused.excluded_reason = verdict.reason
+            await session.flush()
+            await record_provider_success(session, name, quote.latency_ms)
+            outcome.errors[name] = verdict.reason
+            outcome.refused.append(refused.id)
+            log.warning(
+                "implausible_rate_refused",
+                provider=name,
+                rate=format(quote.rate, "f"),
+                deviation=format(verdict.deviation or ZERO, "f"),
+            )
+            await audit.record(
+                session,
+                event_type=AuditEventType.PROVIDER_ERROR,
+                entity_type="rate_sample",
+                entity_id=refused.id,
+                message=verdict.reason,
+                after={"provider": name, "rate": format(quote.rate, "f")},
+                actor=actor,
+            )
+            continue
+
         await record_provider_success(session, name, quote.latency_ms)
         sample = await store_sample(session, quote)
         outcome.quote = quote
@@ -425,6 +464,125 @@ async def refresh_rate(
     # the recorded state of every provider this cycle did not ask.
     outcome.unconfigured = await reconcile_unpolled_providers(session, registry, outcome.polled)
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# Plausibility
+# ---------------------------------------------------------------------------
+
+#: Prefix on the exclusion reason of a quote the guard refused, so refusals can
+#: be counted without a second column.
+REFUSED_PREFIX = "Refused on arrival"
+
+
+@dataclass(slots=True)
+class Plausibility:
+    """Whether a quote is believable against what came before it."""
+
+    accepted: bool
+    reason: str = ""
+    #: Relative distance from the reference rate, when there was one.
+    deviation: Decimal | None = None
+
+
+async def _recent_refusals(
+    session: AsyncSession, source_currency: str, target_currency: str, *, limit: int
+) -> list[RateSample]:
+    """The most recent refused quotes, newest first."""
+    stmt = (
+        select(RateSample)
+        .where(
+            RateSample.source_currency == source_currency,
+            RateSample.target_currency == target_currency,
+            RateSample.excluded_at.is_not(None),
+            RateSample.excluded_reason.startswith(REFUSED_PREFIX),
+        )
+        .order_by(RateSample.retrieved_at.desc(), RateSample.id.desc())
+        .limit(limit)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def assess_plausibility(
+    session: AsyncSession, settings: Settings, quote: RateQuote
+) -> Plausibility:
+    """Decide whether a quote is believable enough to become the current rate.
+
+    A provider glitch and a real market move look identical in a single sample,
+    so this does not pretend to tell them apart. It refuses a jump that is
+    larger than the threshold *and* waits: if the next few polls agree with the
+    new level, the level has moved and it is accepted. A rate the market
+    genuinely reached is delayed by a few minutes; a one-off spike never lands.
+
+    With no recent rate to compare against there is nothing to judge, so the
+    quote is accepted. Refusing on no evidence would leave a fresh install, or
+    one coming back from an outage, unable to collect anything at all.
+    """
+    providers = settings.providers
+    if not providers.implausible_move_enabled or providers.implausible_move_threshold <= ZERO:
+        return Plausibility(accepted=True)
+
+    reference = await latest_sample(session, quote.source_currency, quote.target_currency)
+    if reference is None:
+        return Plausibility(accepted=True, reason="no rate to compare against yet")
+
+    age = (utcnow() - reference.retrieved_at).total_seconds()
+    if age > providers.stale_after_seconds * 4:
+        # The last good rate is old enough that the market could legitimately
+        # be anywhere. Judging against it would be guesswork.
+        return Plausibility(accepted=True, reason="the last rate is too old to compare against")
+
+    deviation = relative_difference(quote.rate, reference.rate)
+    if deviation <= providers.implausible_move_threshold:
+        return Plausibility(accepted=True, deviation=deviation)
+
+    # A jump this size is refused unless the last few polls have been refused
+    # at the same level, which means the market has moved and stayed there.
+    refusals = await _recent_refusals(
+        session,
+        quote.source_currency,
+        quote.target_currency,
+        limit=providers.implausible_move_accept_after - 1,
+    )
+    agreeing = [
+        row
+        for row in refusals
+        if relative_difference(quote.rate, row.rate) <= providers.implausible_move_threshold
+        and (utcnow() - row.retrieved_at).total_seconds() <= providers.stale_after_seconds * 4
+    ]
+    if len(agreeing) >= providers.implausible_move_accept_after - 1:
+        log.info(
+            "implausible_move_confirmed",
+            provider=quote.provider,
+            rate=format(quote.rate, "f"),
+            samples=len(agreeing) + 1,
+        )
+        return Plausibility(
+            accepted=True,
+            deviation=deviation,
+            reason=(
+                f"accepted after {len(agreeing) + 1} consecutive quotes agreed on the new level"
+            ),
+        )
+
+    # Two decimal places: this is a sentence a person reads, not a stored figure.
+    percent = (deviation * Decimal(100)).quantize(DISPLAY_QUANT)
+    limit = (providers.implausible_move_threshold * Decimal(100)).quantize(DISPLAY_QUANT)
+    return Plausibility(
+        accepted=False,
+        deviation=deviation,
+        reason=(
+            f"{REFUSED_PREFIX}: {format(_readable(quote.rate), 'f')} is "
+            f"{format(percent, 'f')}% from the last good rate of "
+            f"{format(_readable(reference.rate), 'f')}, above the {format(limit, 'f')}% limit. "
+            f"Waiting for {providers.implausible_move_accept_after} quotes to agree."
+        ),
+    )
+
+
+def _readable(rate: Decimal) -> Decimal:
+    """A rate at the precision a person types, for use in a message."""
+    return rate.quantize(TARGET_QUANT)
 
 
 async def _evaluate_disagreement(
@@ -495,6 +653,16 @@ async def _evaluate_disagreement(
 # ---------------------------------------------------------------------------
 
 
+def usable_sample() -> Any:
+    """The rule for "this observation may be used".
+
+    Excluded samples are kept as evidence of what a provider returned, but no
+    figure is ever derived from one. Every read path goes through here so a new
+    one cannot quietly forget.
+    """
+    return and_(RateSample.excluded_at.is_(None), RateSample.is_stale.is_(False))
+
+
 async def latest_sample(
     session: AsyncSession, source_currency: str, target_currency: str
 ) -> RateSample | None:
@@ -503,6 +671,7 @@ async def latest_sample(
         .where(
             RateSample.source_currency == source_currency,
             RateSample.target_currency == target_currency,
+            usable_sample(),
         )
         .order_by(RateSample.retrieved_at.desc(), RateSample.id.desc())
         .limit(1)
@@ -519,6 +688,7 @@ async def sample_at_or_before(
             RateSample.source_currency == source_currency,
             RateSample.target_currency == target_currency,
             RateSample.retrieved_at <= moment,
+            usable_sample(),
         )
         .order_by(RateSample.retrieved_at.desc(), RateSample.id.desc())
         .limit(1)
@@ -541,7 +711,7 @@ async def extremes(
         RateSample.source_currency == source_currency,
         RateSample.target_currency == target_currency,
         RateSample.retrieved_at >= since,
-        RateSample.is_stale.is_(False),
+        usable_sample(),
     )
     low_float, high_float = (await session.execute(stmt)).one()
     if low_float is None or high_float is None:
@@ -557,7 +727,7 @@ async def extremes(
                         RateSample.source_currency == source_currency,
                         RateSample.target_currency == target_currency,
                         RateSample.retrieved_at >= since,
-                        RateSample.is_stale.is_(False),
+                        usable_sample(),
                     )
                     .order_by(order)
                     .limit(1)
@@ -634,8 +804,13 @@ async def history(
     end: datetime,
     *,
     limit: int = 5000,
+    include_excluded: bool = False,
 ) -> list[RateSample]:
-    """Raw samples in a window, oldest first."""
+    """Raw samples in a window, oldest first.
+
+    ``include_excluded`` is for the review screen, which exists precisely to
+    show what was thrown out. Nothing that produces a figure sets it.
+    """
     stmt = (
         select(RateSample)
         .where(
@@ -647,6 +822,8 @@ async def history(
         .order_by(RateSample.retrieved_at.asc())
         .limit(limit)
     )
+    if not include_excluded:
+        stmt = stmt.where(usable_sample())
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -701,7 +878,7 @@ async def build_aggregates(
     samples = await history(session, source_currency, target_currency, start, end, limit=200_000)
     grouped: dict[datetime, list[RateSample]] = {}
     for sample in samples:
-        if sample.is_stale:
+        if not sample.usable:
             continue
         grouped.setdefault(_bucket_start(sample.retrieved_at, bucket), []).append(sample)
 
@@ -748,6 +925,179 @@ async def build_aggregates(
         written += 1
     await session.flush()
     return written
+
+
+# ---------------------------------------------------------------------------
+# Excluding an observation
+# ---------------------------------------------------------------------------
+
+
+async def get_sample(session: AsyncSession, sample_id: int) -> RateSample | None:
+    return await session.get(RateSample, sample_id)
+
+
+async def _rebuild_buckets_around(session: AsyncSession, sample: RateSample) -> None:
+    """Recompute the hour and day this sample falls in.
+
+    Without this the point vanishes from the 7-day chart but survives in the
+    aggregates behind the 3-month one, so the same spike reappears at a longer
+    range. The rollups are derived data; they have to follow.
+    """
+    for bucket in ("hour", "day"):
+        start = _bucket_start(sample.retrieved_at, bucket)
+        span = timedelta(hours=1) if bucket == "hour" else timedelta(days=1)
+        await build_aggregates(
+            session,
+            sample.source_currency,
+            sample.target_currency,
+            bucket=bucket,
+            start=start,
+            end=start + span - timedelta(microseconds=1),
+        )
+        if await _bucket_is_empty(session, sample, bucket, start):
+            # Every sample in the bucket was excluded, so the bucket is not a
+            # summary of anything. Leaving it would keep the spike on the chart.
+            await session.execute(
+                delete(RateAggregate).where(
+                    RateAggregate.source_currency == sample.source_currency,
+                    RateAggregate.target_currency == sample.target_currency,
+                    RateAggregate.bucket == bucket,
+                    RateAggregate.bucket_start == start,
+                )
+            )
+    await session.flush()
+
+
+async def _bucket_is_empty(
+    session: AsyncSession, sample: RateSample, bucket: str, start: datetime
+) -> bool:
+    span = timedelta(hours=1) if bucket == "hour" else timedelta(days=1)
+    remaining = (
+        await session.execute(
+            select(func.count())
+            .select_from(RateSample)
+            .where(
+                RateSample.source_currency == sample.source_currency,
+                RateSample.target_currency == sample.target_currency,
+                RateSample.retrieved_at >= start,
+                RateSample.retrieved_at < start + span,
+                usable_sample(),
+            )
+        )
+    ).scalar_one()
+    return bool(remaining == 0)
+
+
+async def exclude_sample(
+    session: AsyncSession, sample: RateSample, *, reason: str, actor: str = "user"
+) -> RateSample:
+    """Stop a sample contributing to any figure, keeping the row.
+
+    The observation is evidence of what a provider returned, which is the only
+    way to work out why a bad figure appeared. Deleting it would throw that
+    away and make the action irreversible; excluding it does neither.
+    """
+    if sample.excluded_at is None:
+        sample.excluded_at = utcnow()
+        sample.excluded_reason = reason[:500]
+        await session.flush()
+        await _rebuild_buckets_around(session, sample)
+        await audit.record(
+            session,
+            event_type=AuditEventType.UPDATED,
+            entity_type="rate_sample",
+            entity_id=sample.id,
+            message=(
+                f"Rate sample {sample.id} excluded: {format(sample.rate, 'f')} from "
+                f"{sample.provider} at {sample.retrieved_at.isoformat()}. {reason}"
+            ),
+            before={"excluded": False},
+            after={"excluded": True, "reason": reason},
+            actor=actor,
+        )
+        log.info("rate_sample_excluded", sample=sample.id, reason=reason)
+    return sample
+
+
+async def restore_sample(
+    session: AsyncSession, sample: RateSample, *, actor: str = "user"
+) -> RateSample:
+    """Undo an exclusion."""
+    if sample.excluded_at is not None:
+        previous = sample.excluded_reason
+        sample.excluded_at = None
+        sample.excluded_reason = None
+        await session.flush()
+        await _rebuild_buckets_around(session, sample)
+        await audit.record(
+            session,
+            event_type=AuditEventType.RESTORED,
+            entity_type="rate_sample",
+            entity_id=sample.id,
+            message=f"Rate sample {sample.id} restored to use",
+            before={"excluded": True, "reason": previous},
+            after={"excluded": False},
+            actor=actor,
+        )
+    return sample
+
+
+@dataclass(slots=True)
+class SampleReview:
+    """One observation, with how far it sits from its neighbours."""
+
+    sample: RateSample
+    #: Relative distance from the median of the surrounding window, or None
+    #: when there are too few neighbours to say.
+    deviation: Decimal | None
+
+
+def _median(values: list[Decimal]) -> Decimal:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return quantize_rate((ordered[middle - 1] + ordered[middle]) / Decimal(2))
+
+
+#: Neighbours either side used when judging how far a point stands out.
+REVIEW_WINDOW = 12
+
+
+def review_samples(samples: Sequence[RateSample]) -> list[SampleReview]:
+    """Measure each sample against the median of the points around it.
+
+    A median rather than a mean, and neighbours rather than the whole series:
+    one wild value drags a mean towards itself and so hides itself, and a rate
+    that drifts a long way over a month is not an outlier.
+
+    The comparison set is the *usable* samples only. A run of bad points must
+    not make each other look normal, and an excluded one is judged against what
+    is left rather than against itself.
+    """
+    ordered = sorted(samples, key=lambda item: (item.retrieved_at, item.id))
+    usable = [sample for sample in ordered if sample.usable]
+    usable_rate_at = {sample.id: index for index, sample in enumerate(usable)}
+
+    reviews: list[SampleReview] = []
+    for position, sample in enumerate(ordered):
+        # Where this sample sits among the usable ones: its own index if it is
+        # usable, otherwise how many usable samples precede it in time.
+        centre = usable_rate_at.get(sample.id)
+        if centre is None:
+            centre = sum(1 for other in ordered[:position] if other.usable)
+        window = [
+            other.rate
+            for index, other in enumerate(usable)
+            if other.id != sample.id and abs(index - centre) <= REVIEW_WINDOW
+        ]
+        if len(window) < 3:
+            reviews.append(SampleReview(sample=sample, deviation=None))
+            continue
+        reviews.append(
+            SampleReview(sample=sample, deviation=relative_difference(sample.rate, _median(window)))
+        )
+    return reviews
 
 
 async def purge_old_samples(

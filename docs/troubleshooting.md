@@ -30,6 +30,19 @@ credentials scrubbed.
 
 The app never substitutes a stale rate for a fresh one. If it says stale, it is.
 
+## A rate on the chart that never happened
+
+Open **Chart → Rate data points**. The panel flags any point standing well away
+from the rates around it; **Exclude** takes it out of the chart and every figure
+derived from it, and **Restore** puts it back if you change your mind. The
+observation is kept either way.
+
+New quotes that jump more than the configured threshold are now refused on
+arrival, so this should stop happening — see
+[implausible rates](rate-providers.md#implausible-rates). If a refusal is
+delaying a move you know is real, either lower "quotes needed to believe a jump"
+or widen the threshold.
+
 ## "Rate provider *X* has been failing for *N* minutes" about a provider you never chose
 
 A provider that is not being polled cannot fail, and is no longer reported as

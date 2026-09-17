@@ -26,6 +26,22 @@ figure that cannot be calculated is `null` — never `0`.
 | `GET` | `/rates/export?range=30d` | CSV in the format the importer accepts |
 | `GET` | `/rates/providers` | Per-provider health and backoff state |
 
+### Rate data quality
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/rates/samples?range=7d&suspicious_only=` | Stored observations, each measured against its neighbours |
+| `POST` | `/rates/samples/exclude` | Stop the given samples contributing to any figure |
+| `POST` | `/rates/samples/restore` | Put them back |
+
+Both take `{"sample_ids": [...], "reason": "..."}`. An excluded sample keeps its
+row: it is the evidence for why a wrong figure appeared, and keeping it is what
+makes the action reversible. Excluding rebuilds the hourly and daily aggregates
+covering the sample, so the point also leaves the long-range chart.
+
+`/rates/refresh` carries `refused`: sample IDs stored but refused by the
+plausibility guard on arrival.
+
 ## Provider configuration
 
 `/rates/providers` reports health; these configure the generic provider.

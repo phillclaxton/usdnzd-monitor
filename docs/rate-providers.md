@@ -117,6 +117,56 @@ alerts.
 If you have seen such an alert, it clears itself on the next poll after
 upgrading. Nothing needs to be reset by hand.
 
+## Implausible rates
+
+A provider glitch and a real market move look identical in a single sample.
+There is no way to tell them apart from one number, so the app does not try:
+
+- A quote more than **2%** from the last good rate (configurable) is **refused
+  on arrival**. It does not become the current rate, it is not charted, and no
+  figure is calculated from it.
+- The refusal is **not treated as a provider failure**. The call worked; it is
+  the number that is in doubt. The chain carries on to the next provider, so a
+  working secondary answers instead.
+- If the next few polls **agree on the new level**, the market really has moved
+  and the new level is accepted. The default is three quotes. A genuine jump
+  costs a few minutes' delay; a one-off spike never lands.
+- Nothing is hidden. The refused observation is stored, marked with the reason,
+  reported in the refresh result, and written to the audit trail.
+
+With no recent rate to compare against — a fresh install, or one returning from
+a long outage — a quote is accepted. Refusing on no evidence would leave the app
+unable to collect anything at all.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Refuse implausible jumps | on | Turn the guard off entirely |
+| Implausible move threshold | 0.0200 | Relative; 0.02 is 2% |
+| Quotes needed to believe a jump | 3 | Consecutive agreeing quotes before the new level is accepted |
+
+Set the threshold wider than the pair's normal daily range, or a real move gets
+delayed on every busy day. For USD/NZD, 2% is roughly three cents.
+
+## Removing a bad point
+
+Anything that got through before the guard existed — or a rate you entered by
+hand and would rather forget — can be taken out from **Chart → Rate data
+points**.
+
+The panel lists the points in the chosen range, each measured against the median
+of the dozen either side of it, and flags the ones standing further out than the
+threshold. **Exclude** removes a point from the chart, the high and low, the
+averages, and the hourly and daily rollups behind the longer ranges.
+
+**The observation is kept, not deleted.** What a provider actually returned is
+the evidence for why a wrong figure appeared, and keeping it is what makes the
+action reversible — **Restore** puts it back. Both are written to the audit
+trail.
+
+Excluding a point rebuilds the aggregate buckets it fell in. Without that the
+spike would disappear from the 7-day chart and reappear on the 3-month one,
+which is drawn from the rollups rather than the raw samples.
+
 ## Polling
 
 | Setting | Default | Notes |

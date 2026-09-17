@@ -102,6 +102,14 @@ class ProviderSettings(Section):
     error_notify_after_seconds: int = Field(default=1800, ge=60)
     disagreement_threshold: DecimalStr = Decimal("0.0030")
     disagreement_is_relative: bool = True
+    #: Refuse a quote that jumps further than this from the last good rate,
+    #: as a proportion (0.02 = 2%). A provider glitch looks exactly like this
+    #: and there is no way to tell one from a real move on a single sample.
+    implausible_move_enabled: bool = True
+    implausible_move_threshold: DecimalStr = Decimal("0.0200")
+    #: How many refusals in a row, agreeing with each other, before the new
+    #: level is believed. Without this a genuine jump would be refused for ever.
+    implausible_move_accept_after: int = Field(default=3, ge=2, le=20)
     market_active_weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
     store_raw_payloads: bool = False
     generic: GenericProviderSettings = Field(default_factory=GenericProviderSettings)

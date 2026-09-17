@@ -181,6 +181,50 @@ export default function SettingsPage() {
             }
           />
         </Field>
+        <div className="fx-inline">
+          <input
+            id="implausible"
+            type="checkbox"
+            checked={providerSettings.implausible_move_enabled}
+            onChange={(event) =>
+              saveProviders({ implausible_move_enabled: event.target.checked })
+            }
+          />
+          <label htmlFor="implausible">Refuse a rate that jumps implausibly far</label>
+        </div>
+        <Field
+          label="Implausible move threshold"
+          hint="a relative jump above this is refused until later polls agree; 0.02 is 2%"
+          htmlFor="implausible-threshold"
+        >
+          <input
+            id="implausible-threshold"
+            type="text"
+            inputMode="decimal"
+            disabled={!providerSettings.implausible_move_enabled}
+            value={providerSettings.implausible_move_threshold}
+            onChange={(event) =>
+              saveProviders({ implausible_move_threshold: event.target.value })
+            }
+          />
+        </Field>
+        <Field
+          label="Quotes needed to believe a jump"
+          hint="a real move is accepted once this many polls agree on the new level"
+          htmlFor="implausible-confirm"
+        >
+          <input
+            id="implausible-confirm"
+            type="number"
+            min={2}
+            max={20}
+            disabled={!providerSettings.implausible_move_enabled}
+            value={providerSettings.implausible_move_accept_after}
+            onChange={(event) =>
+              saveProviders({ implausible_move_accept_after: Number(event.target.value) })
+            }
+          />
+        </Field>
       </Card>
 
       <Card title="Provider status">
