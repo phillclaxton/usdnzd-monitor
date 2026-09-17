@@ -1,8 +1,19 @@
-"""NZD obligations that may be funded by converting USD.
+"""NZD obligations that may be funded by converting USD. **Retired.**
 
-Deliberately independent of strategies and tranches. An obligation is a debt or
-commitment the user holds; the strategy is how they intend to buy the currency.
-The two are compared, not merged.
+"Debts and conversion priorities" was removed: the mortgage and offset figures
+it produced now come from the FX position instead, where they are two fields
+rather than a subsystem.
+
+**These classes are kept on purpose and must not be deleted.** Nothing reads
+them any more, but they are what keeps ``obligations`` and
+``obligation_fundings`` registered on ``Base.metadata`` — and therefore what
+stops a future ``alembic revision --autogenerate`` cheerfully proposing to drop
+two tables that hold the only copy of data somebody entered by hand. The tables
+are in every backup and can be downloaded on their own from
+``GET /legacy-export``.
+
+Originally: an obligation is a debt or commitment the user holds; the strategy
+is how they intend to buy the currency. The two were compared, not merged.
 """
 
 from __future__ import annotations

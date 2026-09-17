@@ -1,0 +1,180 @@
+"""Debts and conversion priorities is retired. Its data is not.
+
+The feature's code is gone, but the rows people entered are still theirs. These
+tests pin the part of that which is easy to get wrong later: that the tables
+survive every migration, that a backup still carries them, and that they can be
+got back out on their own.
+
+Rows are created through the ORM rather than an API, because the API that used
+to create them no longer exists — which is exactly the situation the archive has
+to keep working in.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from pathlib import Path
+
+from httpx import AsyncClient
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.obligation import Obligation, ObligationFunding
+from app.tests.conftest import run_migrations
+
+#: Both tables are kept registered on ``Base.metadata`` so that a future
+#: ``alembic revision --autogenerate`` does not cheerfully propose dropping them.
+RETIRED_TABLES = ("obligations", "obligation_fundings")
+
+
+async def seed(session: AsyncSession) -> None:
+    """Two rows of the kind someone would actually have entered."""
+    session.add(
+        Obligation(
+            id=1,
+            name="Mortgage offset",
+            obligation_type="offset_loan",
+            total_nzd=Decimal("256000"),
+            amount_funded_nzd=Decimal("220415"),
+            annual_rate=Decimal("0.0604"),
+            interest_basis="simple_annual",
+            due_date=date(2026, 12, 1),
+            priority="normal",
+            relationship_importance="none",
+            partial_allowed=True,
+            notes="",
+            active=True,
+            completed=False,
+        )
+    )
+    session.add(
+        ObligationFunding(
+            id=1,
+            obligation_id=1,
+            amount_nzd=Decimal("50000"),
+            funded_at=datetime(2026, 5, 1, tzinfo=UTC),
+            note="Part payment",
+        )
+    )
+    await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# The tables outlive the feature
+# ---------------------------------------------------------------------------
+
+
+def test_the_tables_still_exist_after_every_migration(tmp_path: Path) -> None:
+    """Nothing is ever dropped. Without this, someone autogenerates the drops in
+    six months and the only copy of the data goes with them."""
+    database = tmp_path / "chain.sqlite"
+    run_migrations(database)
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        tables = set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+    assert set(RETIRED_TABLES) <= tables
+
+
+# ---------------------------------------------------------------------------
+# A backup carries them
+# ---------------------------------------------------------------------------
+
+
+async def test_a_backup_contains_the_retired_data(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """They were never in a backup before. Leaving them out now would have made
+    retiring the feature a way to lose the data."""
+    await seed(session)
+
+    document = (await client.post("/api/v1/backup")).json()
+    assert document["counts"]["obligations"] == 1
+    assert document["counts"]["obligation_fundings"] == 1
+
+    (row,) = document["data"]["obligations"]
+    assert row["name"] == "Mortgage offset"
+    # Money crosses as a string, at money precision, like everything else.
+    assert row["total_nzd"] == "256000.0000"
+    assert row["due_date"] == "2026-12-01"
+
+
+async def test_restoring_puts_the_retired_data_back(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await seed(session)
+    document = (await client.post("/api/v1/backup")).json()
+
+    restored = await client.post(
+        "/api/v1/restore?replace=true",
+        files={"file": ("backup.json", json.dumps(document), "application/json")},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["restored"]["obligations"] == 1
+
+    again = (await client.post("/api/v1/backup")).json()
+    assert again["counts"]["obligations"] == 1
+    assert again["data"]["obligations"][0]["annual_rate"] == "0.06040000"
+
+
+# ---------------------------------------------------------------------------
+# The legacy export
+# ---------------------------------------------------------------------------
+
+
+async def test_the_legacy_export_returns_just_this_data(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A full backup carries these tables too, but it carries everything else
+    with them. This is the one-click version."""
+    await seed(session)
+
+    response = await client.get("/api/v1/legacy-export")
+    assert response.status_code == 200, response.text
+    assert "attachment" in response.headers["content-disposition"]
+    assert ".json" in response.headers["content-disposition"]
+
+    document = response.json()
+    assert document["counts"] == {"obligations": 1, "obligation_fundings": 1}
+    assert document["data"]["obligations"][0]["name"] == "Mortgage offset"
+    assert document["data"]["obligation_fundings"][0]["amount_nzd"] == "50000.0000"
+
+
+async def test_the_legacy_export_works_where_the_feature_never_was(
+    client: AsyncClient,
+) -> None:
+    """Empty lists, not an error. Most installs never used it."""
+    response = await client.get("/api/v1/legacy-export")
+    assert response.status_code == 200, response.text
+    assert response.json()["counts"] == {"obligations": 0, "obligation_fundings": 0}
+
+
+async def test_the_export_is_recorded_in_the_audit_trail(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    await seed(session)
+    await client.get("/api/v1/legacy-export")
+
+    events = await client.get("/api/v1/audit-events", params={"entity_type": "obligations"})
+    (event,) = events.json()
+    assert event["event_type"] == "exported"
+    assert "1 obligation(s)" in event["message"]
+
+
+# ---------------------------------------------------------------------------
+# The count that makes the download offer itself, then stop
+# ---------------------------------------------------------------------------
+
+
+async def test_diagnostics_counts_what_is_left(client: AsyncClient, session: AsyncSession) -> None:
+    """The Diagnostics page offers the download only while this is non-zero, so
+    the offer removes itself once the data is gone or was never there."""
+    empty = (await client.get("/api/v1/diagnostics")).json()
+    assert empty["database"]["counts"]["obligations"] == 0
+
+    await seed(session)
+    populated = (await client.get("/api/v1/diagnostics")).json()
+    assert populated["database"]["counts"]["obligations"] == 1

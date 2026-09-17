@@ -192,6 +192,24 @@ async def restore_backup(
     )
 
 
+@router.get("/legacy-export", summary="Download the retired obligations data")
+async def legacy_export(session: SessionDep, actor: ActorDep) -> JSONResponse:
+    """The data from "Debts and conversion priorities", on its own.
+
+    A normal backup carries these tables too. This exists so that keeping a copy
+    before the feature stops being visible is one click, rather than an exercise
+    in finding the rows inside a much larger document.
+
+    It keeps working after the feature is gone, and returns empty lists on an
+    install that never used it.
+    """
+    document = await backup_service.legacy_export(session, actor=actor)
+    filename = f"fx-strategy-obligations-{utcnow().date().isoformat()}.json"
+    return JSONResponse(
+        document, headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
 # ---------------------------------------------------------------------------
 # Diagnostics
 # ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ from decimal import Decimal
 from typing import Any
 
 from app.money import decimal_to_str
-from app.schemas.obligation import ObligationOut, PortfolioOut
 from app.schemas.rates import CurrentRateOut
 from app.schemas.strategy import StrategySummaryOut
 
@@ -35,9 +34,6 @@ class EntityContext:
     mqtt_connected: bool
     wise_connected: bool
     simulation: bool
-    #: The obligations book. Absent when the feature is unused.
-    portfolio: PortfolioOut | None = None
-    obligations: list[ObligationOut] = field(default_factory=list)
 
     @property
     def source(self) -> str:
@@ -65,9 +61,6 @@ class EntityDefinition:
     attributes: AttrFn | None = None
     #: Extra keys merged into the discovery payload (number ranges, select options).
     extra: dict[str, Any] = field(default_factory=dict)
-    #: Overrides the app-level device, so an obligation can be its own device in
-    #: Home Assistant rather than another row on one enormous one.
-    device: dict[str, Any] | None = None
 
     @property
     def entity_id(self) -> str:

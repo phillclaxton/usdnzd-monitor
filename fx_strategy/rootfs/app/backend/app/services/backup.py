@@ -28,6 +28,7 @@ from app.database import (
 from app.logging_setup import get_logger, get_ring_buffer
 from app.models.alert import NotificationLog, TrancheAlertState
 from app.models.audit import AuditEvent, AuditEventType
+from app.models.obligation import Obligation, ObligationFunding
 from app.models.position import FxAlertState, FxPosition
 from app.models.rate import FeeModel, ManualRate, ProviderStatus, RateAggregate, RateSample
 from app.models.setting import AppSetting
@@ -85,6 +86,11 @@ async def create_backup(
         "conversions": await _dump(session, Conversion),
         "fx_position": await _dump(session, FxPosition),
         "fx_alert_state": await _dump(session, FxAlertState),
+        # Retired, and included precisely because it is. Obligations were never
+        # in a backup, so the database rows were the only copy of them; leaving
+        # them out now would make retiring the feature a way to lose the data.
+        "obligations": await _dump(session, Obligation),
+        "obligation_fundings": await _dump(session, ObligationFunding),
         "fee_models": await _dump(session, FeeModel),
         "rate_samples": await _dump(session, RateSample),
         "rate_aggregates": await _dump(session, RateAggregate),
@@ -120,6 +126,46 @@ async def create_backup(
     return document
 
 
+async def legacy_export(session: AsyncSession, *, actor: str = "user") -> dict[str, Any]:
+    """The retired obligations data, on its own.
+
+    A full backup already carries these tables, but it carries everything else
+    too. This exists so that keeping a copy of a feature's data before it stops
+    being visible is one click rather than an exercise in finding the rows
+    inside a much larger document.
+
+    It keeps working after the feature is gone, and returns empty lists on an
+    install that never used it.
+    """
+    data = {
+        "obligations": await _dump(session, Obligation),
+        "obligation_fundings": await _dump(session, ObligationFunding),
+    }
+    counts = {name: len(rows) for name, rows in data.items()}
+    await audit.record(
+        session,
+        event_type=AuditEventType.EXPORTED,
+        entity_type="obligations",
+        message=(
+            f"Legacy obligations export: {counts['obligations']} obligation(s) and "
+            f"{counts['obligation_fundings']} funding record(s)"
+        ),
+        after=counts,
+        actor=actor,
+    )
+    return {
+        "format_version": BACKUP_FORMAT_VERSION,
+        "app_version": __version__,
+        "created_at": utcnow().isoformat(),
+        "note": (
+            "Debts and conversion priorities was retired. This is its data, exported "
+            "on its own. A normal backup also contains these tables."
+        ),
+        "data": data,
+        "counts": counts,
+    }
+
+
 class RestoreError(ValueError):
     """The supplied backup cannot be restored."""
 
@@ -133,6 +179,8 @@ RESTORE_ORDER: tuple[tuple[str, Any], ...] = (
     ("conversions", Conversion),
     ("fx_position", FxPosition),
     ("fx_alert_state", FxAlertState),
+    ("obligations", Obligation),
+    ("obligation_fundings", ObligationFunding),
     ("rate_samples", RateSample),
     ("rate_aggregates", RateAggregate),
     ("manual_rates", ManualRate),
@@ -323,6 +371,11 @@ async def diagnostics(
         ).scalar_one(),
         "notifications": (
             await session.execute(select(func.count()).select_from(NotificationLog))
+        ).scalar_one(),
+        # Retired. Reported so the app can offer the legacy export only while
+        # there is something to export, and stop offering it once there is not.
+        "obligations": (
+            await session.execute(select(func.count()).select_from(Obligation))
         ).scalar_one(),
     }
 
