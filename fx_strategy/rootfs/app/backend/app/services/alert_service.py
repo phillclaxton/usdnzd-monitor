@@ -36,7 +36,7 @@ from app.models.audit import AuditEventType
 from app.models.strategy import Strategy, Tranche, TrancheStatus
 from app.money import ZERO, quantize_rate
 from app.schemas.settings import Settings
-from app.services import audit
+from app.services import alert_common, audit
 from app.services import calculations as calc
 from app.services import strategy_service as strategies
 from app.services.notifications import Notification
@@ -90,16 +90,18 @@ async def states_for(session: AsyncSession, strategy: Strategy) -> dict[int, Tra
 
 
 def _confirmation_passed(state: TrancheAlertState, settings: Settings, sample_at: datetime) -> bool:
-    """Two consecutive qualifying samples, far enough apart in time."""
-    required = settings.notifications.confirmation_samples
-    if state.qualifying_samples < required:
-        return False
-    if required <= 1:
-        return True
-    if state.first_qualifying_at is None:
-        return False
-    gap = (sample_at - state.first_qualifying_at).total_seconds()
-    return gap >= settings.notifications.confirmation_min_seconds
+    """Two consecutive qualifying samples, far enough apart in time.
+
+    The rule itself lives in :mod:`app.services.alert_common` so the movement
+    alerts apply exactly the same one to their own state rows.
+    """
+    return alert_common.confirmation_passed(
+        qualifying_samples=state.qualifying_samples,
+        first_qualifying_at=state.first_qualifying_at,
+        sample_at=sample_at,
+        required_samples=settings.notifications.confirmation_samples,
+        minimum_seconds=settings.notifications.confirmation_min_seconds,
+    )
 
 
 def _format_money(value: Decimal | None, currency: str) -> str:

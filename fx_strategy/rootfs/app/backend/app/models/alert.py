@@ -30,6 +30,15 @@ class AlertRuleType(StrEnum):
     WALK_AWAY_REACHED = "walk_away_reached"
     RATE_REVERSAL = "rate_reversal"
 
+    # The movement alerts. Stored in a String(32) column, so adding one needs no
+    # migration — only a name nobody has used before.
+    FX_ABSOLUTE_MOVE = "fx_absolute_move"
+    FX_INTRADAY_MOVE = "fx_intraday_move"
+    FX_NEW_HIGH = "fx_new_high"
+    FX_LEVEL_CROSSED = "fx_level_crossed"
+    FX_PORTFOLIO_VALUE = "fx_portfolio_value"
+    FX_MORTGAGE_MILESTONE = "fx_mortgage_milestone"
+
 
 class Severity(StrEnum):
     INFO = "info"

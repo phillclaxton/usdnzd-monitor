@@ -22,7 +22,7 @@ from app.models.alert import Severity
 from app.models.strategy import Strategy, StrategyStatus
 from app.money import ZERO, quantize_rate
 from app.schemas.settings import Settings
-from app.services import alert_service, notifications, rate_service
+from app.services import alert_service, fx_alerts, notifications, rate_service
 from app.services import calculations as calc
 from app.services import strategy_service as strategies
 from app.services.notifications import Notification
@@ -76,7 +76,53 @@ async def run_after_refresh(
             observed_at=observed_at,
             result=result,
         )
+
+    await _check_position(session, settings, current, outcome, result)
     return result
+
+
+async def _check_position(
+    session: AsyncSession,
+    settings: Settings,
+    current: rate_service.CurrentRate,
+    outcome: RefreshOutcome,
+    result: MonitorResult,
+) -> None:
+    """The movement alerts.
+
+    Delivered through the same ``_deliver`` funnel as everything else, so quiet
+    hours, the retry queue and the notification log apply without fx_alerts
+    knowing they exist.
+
+    Level crossings and mortgage milestones pass ``cooldown_minutes=0``: their
+    own hysteresis is a stricter rule than a timer, and a timer on top could
+    only swallow a genuine second crossing.
+    """
+    try:
+        run = await fx_alerts.evaluate(
+            session,
+            settings,
+            current=current,
+            disagreement=outcome.disagreement_exceeded,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        result.errors.append(f"movement alerts failed: {exc}")
+        log.warning("fx_alerts_failed", error=str(exc))
+        return
+
+    for notification in run.notifications:
+        cooldown = 0 if _hysteresis_governed(notification) else None
+        await _deliver(session, settings, notification, result, cooldown_minutes=cooldown)
+    for key, reason in run.suppressed:
+        result.suppressed.append(f"{key}: {reason}")
+
+
+def _hysteresis_governed(notification: Notification) -> bool:
+    """Conditions whose dedup is a state change rather than a period of time."""
+    return notification.rule_type in {
+        alert_service.AlertRuleType.FX_LEVEL_CROSSED,
+        alert_service.AlertRuleType.FX_MORTGAGE_MILESTONE,
+    }
 
 
 async def _deliver(

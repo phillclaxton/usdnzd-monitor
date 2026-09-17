@@ -23,7 +23,7 @@ from app.database import utcnow
 from app.logging_setup import get_logger
 from app.models.alert import NotificationLog
 from app.models.audit import AuditEventType
-from app.models.position import POSITION_ID, FxPosition
+from app.models.position import POSITION_ID, FxAlertState, FxPosition
 from app.models.strategy import Conversion
 from app.money import ZERO, quantize_money
 from app.schemas.position import (
@@ -366,6 +366,16 @@ async def record_conversion(
     return conversion
 
 
+async def alert_states(session: AsyncSession) -> dict[str, FxAlertState]:
+    """The stored value each movement-alert condition last spoke at, by key.
+
+    A key is also the notification's ``entity_id``, which is what lets the log
+    and this table be joined at all without either knowing about the other.
+    """
+    rows = (await session.execute(select(FxAlertState))).scalars().all()
+    return {row.alert_key: row for row in rows}
+
+
 async def get_alert_history(
     session: AsyncSession, *, limit: int = 100, offset: int = 0
 ) -> list[NotificationLog]:
@@ -627,6 +637,7 @@ __all__ = [
     "ConversionHistory",
     "PositionError",
     "PositionState",
+    "alert_states",
     "export_state",
     "get_alert_history",
     "get_conversion_history",
