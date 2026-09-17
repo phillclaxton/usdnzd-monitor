@@ -1,0 +1,75 @@
+{
+  "_comment": [
+    "An EXAMPLE position for POST /api/v1/fx/state/import. The figures are made up.",
+    "They are round on purpose so every derived number comes out exact and a wrong",
+    "answer is obvious: against the 1.6000 baseline the four conversions below give",
+    "confirmed 10,732.50, estimated 6,000.00, total 16,732.50, and the offset costs",
+    "exactly 6.00 a day. Replace all of it with your own figures before importing.",
+    "",
+    "current_source_balance is the balance AFTER these conversions. The importer",
+    "writes it exactly as given and does not decrement it again - that is what makes",
+    "this backfill rather than four live recordings."
+  ],
+
+  "source_currency": "USD",
+  "target_currency": "NZD",
+
+  "current_source_balance": "500000",
+
+  "baseline_rate": "1.6000",
+  "baseline_date": "2026-01-31",
+
+  "floating_loan_rate": "0.0600",
+  "current_offset_shortfall_nzd": "36500",
+  "monthly_nzd_burn": "4000",
+
+  "notes": "Example position. Replace with your own figures.",
+
+  "completed_conversions": [
+    {
+      "_comment": "Everything known. The rate applies to the amount after the fee.",
+      "executed_at": "2026-02-14T00:00:00+00:00",
+      "source_amount": "50000.00",
+      "target_amount": "84830.00",
+      "gross_rate": "1.7000",
+      "fee_source_currency": "100.00",
+      "notes": "Example conversion with a recorded fee"
+    },
+    {
+      "executed_at": "2026-04-02T00:00:00+00:00",
+      "source_amount": "25000.00",
+      "target_amount": "43662.50",
+      "gross_rate": "1.7500",
+      "fee_source_currency": "50.00",
+      "notes": "Example conversion with a recorded fee"
+    },
+    {
+      "_comment": [
+        "The amount converted is omitted because only the receipt and the rate are",
+        "known. The importer derives it by algebra (34,000 / 1.7 = 20,000 exactly),",
+        "which is not an estimate, so this row is NOT flagged. The fee is genuinely",
+        "unrecorded, and stays null rather than being written down as zero - the",
+        "improvement is reported with fee_unrecorded set instead."
+      ],
+      "executed_at": "2026-06-20T00:00:00+00:00",
+      "target_amount": "34000.00",
+      "gross_rate": "1.7000",
+      "fee_source_currency": null,
+      "notes": "Example conversion with the amount converted implied by the rate"
+    },
+    {
+      "_comment": [
+        "The amount received is a reconstruction, not a receipt, so the row carries",
+        "amounts_estimated. Everything derived from it is reported beside the",
+        "confirmed total rather than added into it. Enter the real receipt later and",
+        "the flag clears and the split collapses on its own."
+      ],
+      "executed_at": "2026-08-11T00:00:00+00:00",
+      "source_amount": "30000.00",
+      "gross_rate": "1.8000",
+      "target_amount": "54000.00",
+      "amounts_estimated": true,
+      "notes": "Example conversion whose received amount is estimated"
+    }
+  ]
+}

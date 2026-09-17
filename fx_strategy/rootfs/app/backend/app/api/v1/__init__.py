@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     audit,
     conversions,
+    fx,
     health,
     home_assistant,
     obligations,
@@ -27,6 +28,7 @@ api_router.include_router(obligations.router)
 api_router.include_router(strategies.router)
 api_router.include_router(tranches.router)
 api_router.include_router(conversions.router)
+api_router.include_router(fx.router)
 api_router.include_router(wise.router)
 api_router.include_router(home_assistant.router)
 api_router.include_router(system.router)
