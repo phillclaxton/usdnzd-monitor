@@ -188,6 +188,9 @@ class Conversion(Base):
 
     Records are corrected by superseding them, never by silently rewriting
     history: every change writes an audit event carrying the previous values.
+
+    ``strategy_id`` is optional. A conversion is a fact about money that moved;
+    it does not need a plan to have existed for it to be recorded.
     """
 
     __tablename__ = "conversions"
@@ -197,8 +200,8 @@ class Conversion(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    strategy_id: Mapped[int] = mapped_column(
-        ForeignKey("strategies.id", ondelete="CASCADE"), nullable=False
+    strategy_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strategies.id", ondelete="CASCADE"), nullable=True
     )
     tranche_id: Mapped[int | None] = mapped_column(ForeignKey("tranches.id", ondelete="SET NULL"))
 
@@ -219,6 +222,11 @@ class Conversion(Base):
         String(16), nullable=False, default=str(RecordSource.MANUAL)
     )
     simulated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: At least one of the amounts is a reconstruction, not a figure off a
+    #: receipt. Anything derived from this row has to say so, rather than
+    #: presenting an estimate as a fact. Entering the real receipt clears the
+    #: flag and the distinction disappears on its own.
+    amounts_estimated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     receipt_filename: Mapped[str | None] = mapped_column(String(200))
 
@@ -227,4 +235,4 @@ class Conversion(Base):
         UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow
     )
 
-    strategy: Mapped[Strategy] = relationship(back_populates="conversions")
+    strategy: Mapped[Strategy | None] = relationship(back_populates="conversions")

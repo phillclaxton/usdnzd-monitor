@@ -27,7 +27,9 @@ class TrancheAllocationIn(StrictSchema):
 
 
 class ConversionIn(StrictSchema):
-    strategy_id: int
+    #: Optional: a conversion is a fact about money that moved, and does not
+    #: need a plan to have existed. Only a tranche link requires one.
+    strategy_id: int | None = None
     executed_at: datetime
     source_amount: MoneyStr
     target_amount: MoneyStr
@@ -43,6 +45,8 @@ class ConversionIn(StrictSchema):
     notes: str = Field(default="", max_length=2000)
     record_source: RecordSourceName = "manual"
     simulated: bool = False
+    #: At least one amount is reconstructed rather than taken from a receipt.
+    amounts_estimated: bool = False
     receipt_filename: str | None = Field(default=None, max_length=200)
     #: Set when fixing an earlier mis-entry, which may exceed the remaining balance.
     correcting_earlier_record: bool = False
@@ -63,6 +67,11 @@ class ConversionIn(StrictSchema):
             ids = [item.tranche_id for item in self.allocations]
             if len(ids) != len(set(ids)):
                 raise ValueError("Each tranche may appear only once in the allocations.")
+        if self.strategy_id is None and (self.allocations or self.tranche_id is not None):
+            raise ValueError(
+                "A tranche belongs to a strategy, so a conversion cannot be assigned "
+                "to one without naming the strategy."
+            )
         for fee in (self.fee_source_currency, self.fee_target_currency):
             if fee is not None and fee < 0:
                 raise ValueError("A fee cannot be negative.")
@@ -77,7 +86,7 @@ class ConversionUpdate(ConversionIn):
 
 class ConversionOut(Schema):
     id: int
-    strategy_id: int
+    strategy_id: int | None
     tranche_id: int | None
     source_amount: MoneyStr
     target_amount: MoneyStr
@@ -91,6 +100,7 @@ class ConversionOut(Schema):
     executed_at: datetime
     record_source: str
     simulated: bool
+    amounts_estimated: bool
     notes: str
     receipt_filename: str | None
     created_at: datetime
