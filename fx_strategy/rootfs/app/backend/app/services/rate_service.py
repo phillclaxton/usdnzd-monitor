@@ -696,13 +696,26 @@ async def sample_at_or_before(
     return (await session.execute(stmt)).scalars().first()
 
 
+@dataclass(frozen=True, slots=True)
+class RateExtremes:
+    """The lowest and highest rate over a window.
+
+    Named fields rather than a pair, because a two-tuple of the same type reads
+    the same whichever way round it is unpacked. It was unpacked the wrong way
+    round in two places for months, silently showing every high as a low.
+    """
+
+    low: Decimal | None
+    high: Decimal | None
+
+
 async def extremes(
     session: AsyncSession,
     source_currency: str,
     target_currency: str,
     since: datetime,
-) -> tuple[Decimal | None, Decimal | None]:
-    """High and low over a window.
+) -> RateExtremes:
+    """Lowest and highest rate over a window.
 
     The float companion column does the aggregation; the two matching samples
     are then re-read so the returned values are exact Decimals.
@@ -715,7 +728,7 @@ async def extremes(
     )
     low_float, high_float = (await session.execute(stmt)).one()
     if low_float is None or high_float is None:
-        return None, None
+        return RateExtremes(low=None, high=None)
 
     async def exact(ascending: bool) -> Decimal | None:
         order = RateSample.rate_numeric.asc() if ascending else RateSample.rate_numeric.desc()
@@ -738,7 +751,7 @@ async def extremes(
         )
         return row.rate if row else None
 
-    return await exact(True), await exact(False)
+    return RateExtremes(low=await exact(True), high=await exact(False))
 
 
 async def change_over(
@@ -778,8 +791,8 @@ async def current_rate(
         label: await change_over(session, source, target, window, sample.rate if sample else None)
         for label, window in CHANGE_WINDOWS.items()
     }
-    high_24h, low_24h = await extremes(session, source, target, utcnow() - timedelta(hours=24))
-    high_6m, low_6m = await extremes(session, source, target, utcnow() - timedelta(days=182))
+    day = await extremes(session, source, target, utcnow() - timedelta(hours=24))
+    six_months = await extremes(session, source, target, utcnow() - timedelta(days=182))
 
     return CurrentRate(
         sample=sample,
@@ -788,10 +801,10 @@ async def current_rate(
         stale_after_seconds=stale_after,
         provider=sample.provider if sample else "",
         changes=changes,
-        high_24h=high_24h,
-        low_24h=low_24h,
-        high_6m=high_6m,
-        low_6m=low_6m,
+        high_24h=day.high,
+        low_24h=day.low,
+        high_6m=six_months.high,
+        low_6m=six_months.low,
         disagreement_warning=disagreement_warning,
     )
 

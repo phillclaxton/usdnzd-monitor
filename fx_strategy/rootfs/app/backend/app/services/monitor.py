@@ -197,18 +197,18 @@ async def _check_reversal(
     threshold = settings.notifications.reversal_threshold
     if threshold <= ZERO or remaining <= ZERO:
         return
-    _low, high = await rate_service.extremes(
+    day = await rate_service.extremes(
         session,
         strategy.source_currency,
         strategy.target_currency,
         utcnow() - timedelta(hours=24),
     )
-    if high is None:
+    if day.high is None:
         return
-    fall = quantize_rate(high - rate)
+    fall = quantize_rate(day.high - rate)
     if fall < threshold:
         return
-    notification = alert_service.reversal_notification(strategy, fall, high, remaining)
+    notification = alert_service.reversal_notification(strategy, fall, day.high, remaining)
     await _deliver(session, settings, notification, result, cooldown_minutes=6 * 60)
 
 
