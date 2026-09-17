@@ -10,14 +10,16 @@ from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import PlainTextResponse
 
 from app.api.deps import ActorDep, SessionDep, SettingsDep
+from app.api.errors import NotFoundError, ValidationError
 from app.api.errors import ProviderError as ApiProviderError
-from app.api.errors import ValidationError
 from app.database import utcnow
 from app.money import ZERO, quantize_rate, safe_divide
 from app.providers.base import QUOTE_TYPE_LABEL, QuoteType, RatePoint
 from app.scheduler.jobs import build_registry
+from app.schemas.common import Message
 from app.schemas.rates import (
     CurrentRateOut,
+    ExcludeSamplesIn,
     ManualRateIn,
     ProviderStatusOut,
     RateChanges,
@@ -25,6 +27,8 @@ from app.schemas.rates import (
     RateImportPreview,
     RatePointOut,
     RefreshOut,
+    SampleListOut,
+    SampleOut,
 )
 from app.services import csv_io, rate_service
 
@@ -189,6 +193,7 @@ async def refresh(session: SessionDep, settings: SettingsDep, actor: ActorDep) -
         disagreement=outcome.disagreement,
         disagreement_exceeded=outcome.disagreement_exceeded,
         comparison=outcome.comparison,
+        refused=outcome.refused,
     )
 
 
@@ -331,6 +336,116 @@ async def export_rates(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Reviewing and excluding observations
+# ---------------------------------------------------------------------------
+
+
+@router.get("/samples", response_model=SampleListOut, summary="Stored observations")
+async def list_samples(
+    session: SessionDep,
+    settings: SettingsDep,
+    range_key: str = Query(default="7d", alias="range"),
+    suspicious_only: bool = False,
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> SampleListOut:
+    """Raw samples in a window, each measured against its neighbours.
+
+    Excluded samples are included here on purpose: this is the screen for
+    seeing what was thrown out and putting it back if that was a mistake.
+    """
+    source = settings.general.source_currency
+    target = settings.general.target_currency
+    window = RANGE_WINDOWS.get(range_key)
+    if window is None:
+        raise ValidationError(
+            f"Unknown range {range_key!r}. Use one of: {', '.join(RANGE_WINDOWS)}."
+        )
+    now = utcnow()
+    samples = await rate_service.history(
+        session, source, target, now - window, now, limit=20_000, include_excluded=True
+    )
+    reviews = rate_service.review_samples(samples)
+    threshold = settings.providers.implausible_move_threshold
+
+    rows: list[SampleOut] = []
+    for review in reviews:
+        sample = review.sample
+        suspicious = review.deviation is not None and review.deviation > threshold
+        rows.append(
+            SampleOut(
+                id=sample.id,
+                timestamp=sample.retrieved_at,
+                rate=sample.rate,
+                provider=sample.provider,
+                quote_type=sample.quote_type,
+                excluded=sample.excluded_at is not None,
+                excluded_reason=sample.excluded_reason,
+                deviation=review.deviation,
+                suspicious=suspicious,
+            )
+        )
+
+    excluded_count = sum(1 for row in rows if row.excluded)
+    suspicious_count = sum(1 for row in rows if row.suspicious and not row.excluded)
+    total = len(rows)
+    if suspicious_only:
+        rows = [row for row in rows if row.suspicious or row.excluded]
+    # Newest first: a point you have just noticed on the chart is at the top.
+    rows.sort(key=lambda row: row.timestamp, reverse=True)
+
+    return SampleListOut(
+        samples=rows[:limit],
+        threshold=threshold,
+        total=total,
+        excluded_count=excluded_count,
+        suspicious_count=suspicious_count,
+    )
+
+
+@router.post("/samples/exclude", response_model=Message, summary="Exclude observations")
+async def exclude_samples(
+    payload: ExcludeSamplesIn, session: SessionDep, actor: ActorDep
+) -> Message:
+    """Stop these samples contributing to any figure.
+
+    The rows are kept. What a provider actually returned is the evidence for
+    why a wrong figure appeared, and it is what makes this reversible.
+    """
+    reason = payload.reason.strip() or "Excluded by hand from the rate history."
+    excluded = 0
+    for sample_id in payload.sample_ids:
+        sample = await rate_service.get_sample(session, sample_id)
+        if sample is None:
+            raise NotFoundError(f"Rate sample {sample_id} does not exist.")
+        if sample.excluded_at is None:
+            await rate_service.exclude_sample(session, sample, reason=reason, actor=actor)
+            excluded += 1
+    return Message(
+        message=(
+            f"{excluded} rate sample(s) excluded. They are kept in the database and can be "
+            "restored; no figure is calculated from them."
+            if excluded
+            else "Those samples were already excluded."
+        )
+    )
+
+
+@router.post("/samples/restore", response_model=Message, summary="Restore observations")
+async def restore_samples(
+    payload: ExcludeSamplesIn, session: SessionDep, actor: ActorDep
+) -> Message:
+    restored = 0
+    for sample_id in payload.sample_ids:
+        sample = await rate_service.get_sample(session, sample_id)
+        if sample is None:
+            raise NotFoundError(f"Rate sample {sample_id} does not exist.")
+        if sample.excluded_at is not None:
+            await rate_service.restore_sample(session, sample, actor=actor)
+            restored += 1
+    return Message(message=f"{restored} rate sample(s) restored to use.")
 
 
 @router.get("/providers", response_model=list[ProviderStatusOut], summary="Provider health")

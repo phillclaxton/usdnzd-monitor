@@ -4,6 +4,48 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-17
+
+### Added
+
+- **A rate that jumps implausibly far is refused on arrival.** A quote more than
+  2% from the last good rate (configurable) does not become the current rate, is
+  not charted, and no figure is calculated from it. A provider glitch and a real
+  market move look identical in one sample, so the app does not guess: it
+  refuses, and if the next few polls agree on the new level, the level has moved
+  and is accepted. The default is three quotes, so a genuine jump is delayed by
+  a few minutes and a one-off spike never lands.
+
+  A refusal is **not** a provider failure — the call worked, it is the number
+  that is in doubt — so the provider stays healthy and the chain carries on to
+  the next one. The refused observation is stored with its reason, reported in
+  the refresh result, and written to the audit trail. Nothing is hidden.
+
+  With no recent rate to compare against, a quote is accepted: refusing on no
+  evidence would leave a fresh install unable to collect anything at all.
+- **Chart → Rate data points**, for anything that got through before. The panel
+  measures each observation against the median of the dozen either side and
+  flags those standing further out than the threshold. **Exclude** removes a
+  point from the chart, the high and low, the averages and the rollups behind
+  the longer ranges; **Restore** puts it back. Both are audited.
+
+  The observation is kept rather than deleted. What a provider actually returned
+  is the evidence for why a wrong figure appeared, and keeping it is what makes
+  the action reversible.
+- Excluding a point rebuilds the hourly and daily aggregates it fell in, and
+  removes a bucket left with nothing in it. Without that the spike would vanish
+  from the 7-day chart and reappear on the 3-month one, which is drawn from the
+  rollups rather than the raw samples.
+- New endpoints: `GET /rates/samples`, `POST /rates/samples/exclude` and
+  `POST /rates/samples/restore`. `/rates/refresh` now carries `refused`.
+
+### Changed
+
+- Every path that reads a rate — the current rate, the chart, the high and low,
+  the change indicators, the CSV export, the aggregates — now goes through one
+  shared rule for whether an observation may be used, so a new read path cannot
+  quietly forget to skip an excluded one.
+
 ## [1.3.3] - 2026-08-06
 
 ### Fixed

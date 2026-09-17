@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import RateSampleReview from '@/components/RateSampleReview';
 import { Banner, Card, EmptyState, Loading } from '@/components/ui';
 import { RATE_RANGES, useRateHistory, type RateRange } from '@/hooks/useRates';
 import { useSettings } from '@/hooks/useSettings';
@@ -187,6 +188,8 @@ export default function ChartPage() {
           </p>
         )}
       </Card>
+
+      <RateSampleReview range={range} />
     </>
   );
 }

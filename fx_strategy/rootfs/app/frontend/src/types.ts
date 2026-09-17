@@ -72,6 +72,9 @@ export interface ProviderSettings {
   error_notify_after_seconds: number;
   disagreement_threshold: string;
   disagreement_is_relative: boolean;
+  implausible_move_enabled: boolean;
+  implausible_move_threshold: string;
+  implausible_move_accept_after: number;
   market_active_weekdays: number[];
   store_raw_payloads: boolean;
   generic: GenericProviderSettings;
@@ -209,6 +212,28 @@ export interface RateHistory {
   truncated: boolean;
 }
 
+/** One stored observation, as the review panel shows it. */
+export interface RateSample {
+  id: number;
+  timestamp: string;
+  rate: string;
+  provider: string;
+  quote_type: string;
+  excluded: boolean;
+  excluded_reason: string | null;
+  /** Distance from the median of the neighbouring points, as a proportion. */
+  deviation: string | null;
+  suspicious: boolean;
+}
+
+export interface RateSampleList {
+  samples: RateSample[];
+  threshold: string;
+  total: number;
+  excluded_count: number;
+  suspicious_count: number;
+}
+
 export interface RefreshResult {
   succeeded: boolean;
   provider: string;
@@ -218,6 +243,8 @@ export interface RefreshResult {
   disagreement: string | null;
   disagreement_exceeded: boolean;
   comparison: Record<string, string>;
+  /** Sample IDs stored but refused by the plausibility guard. */
+  refused: number[];
 }
 
 export interface ProviderStatus {

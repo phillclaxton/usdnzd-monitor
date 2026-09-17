@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api';
-import type { CurrentRate, ProviderStatus, RateHistory, RefreshResult } from '@/types';
+import type {
+  CurrentRate,
+  ProviderStatus,
+  RateHistory,
+  RateSampleList,
+  RefreshResult,
+} from '@/types';
 
 export const RATE_RANGES = ['24h', '7d', '30d', '3m', '6m', '1y'] as const;
 export type RateRange = (typeof RATE_RANGES)[number];
@@ -21,6 +27,41 @@ export function useRateHistory(range: RateRange) {
     queryKey: ['rate', 'history', range],
     queryFn: () => api.get<RateHistory>(`rates/history?range=${range}`),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Stored observations in a window, each measured against its neighbours.
+ *
+ * Unlike the chart series this includes excluded points: the panel exists to
+ * show what was thrown out and to put it back if that was a mistake.
+ */
+export function useRateSamples(range: RateRange, suspiciousOnly: boolean) {
+  return useQuery({
+    queryKey: ['rate', 'samples', range, suspiciousOnly],
+    queryFn: () =>
+      api.get<RateSampleList>(
+        `rates/samples?range=${range}&suspicious_only=${suspiciousOnly ? 'true' : 'false'}`,
+      ),
+    staleTime: 30_000,
+  });
+}
+
+export function useExcludeSamples() {
+  const invalidate = useRateInvalidation();
+  return useMutation({
+    mutationFn: (payload: { sample_ids: number[]; reason?: string }) =>
+      api.post<{ message: string }>('rates/samples/exclude', payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreSamples() {
+  const invalidate = useRateInvalidation();
+  return useMutation({
+    mutationFn: (payload: { sample_ids: number[] }) =>
+      api.post<{ message: string }>('rates/samples/restore', payload),
+    onSuccess: invalidate,
   });
 }
 

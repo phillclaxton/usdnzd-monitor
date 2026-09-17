@@ -110,6 +110,39 @@ class RefreshOut(Schema):
     disagreement: RateStr | None = None
     disagreement_exceeded: bool = False
     comparison: dict[str, str] = Field(default_factory=dict)
+    #: Samples stored but refused by the plausibility guard this cycle.
+    refused: list[int] = Field(default_factory=list)
+
+
+class SampleOut(Schema):
+    """One stored observation, as the review screen shows it."""
+
+    id: int
+    timestamp: datetime
+    rate: RateStr
+    provider: str
+    quote_type: str
+    excluded: bool
+    excluded_reason: str | None = None
+    #: How far this sits from the median of the points around it, as a
+    #: proportion. ``None`` when there are too few neighbours to judge.
+    deviation: RateStr | None = None
+    #: True when the deviation is beyond the plausibility threshold.
+    suspicious: bool = False
+
+
+class SampleListOut(Schema):
+    samples: list[SampleOut] = Field(default_factory=list)
+    #: The threshold the suspicious flag was judged against, as a proportion.
+    threshold: RateStr
+    total: int
+    excluded_count: int
+    suspicious_count: int
+
+
+class ExcludeSamplesIn(StrictSchema):
+    sample_ids: list[int] = Field(min_length=1, max_length=500)
+    reason: str = Field(default="", max_length=500)
 
 
 class ProviderStatusOut(Schema):

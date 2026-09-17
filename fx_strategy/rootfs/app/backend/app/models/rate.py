@@ -40,6 +40,18 @@ class RateSample(Base):
     raw_reference: Mapped[str | None] = mapped_column(String(128))
     metadata_json: Mapped[str | None] = mapped_column(Text)
 
+    #: Set when this observation is not to be used: a spike that never happened,
+    #: or a quote the plausibility guard refused on arrival. The row is kept —
+    #: what a provider actually returned is evidence, and deleting it would
+    #: destroy the only record of the fault — but every figure ignores it.
+    excluded_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    excluded_reason: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def usable(self) -> bool:
+        """Whether this observation may contribute to a displayed figure."""
+        return self.excluded_at is None and not self.is_stale
+
 
 class RateAggregate(Base):
     """Hourly and daily rollups, so long-range charts survive data retention."""
