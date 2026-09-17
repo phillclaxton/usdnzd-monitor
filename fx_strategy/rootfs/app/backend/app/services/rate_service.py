@@ -696,6 +696,30 @@ async def sample_at_or_before(
     return (await session.execute(stmt)).scalars().first()
 
 
+async def sample_at_or_after(
+    session: AsyncSession, source_currency: str, target_currency: str, moment: datetime
+) -> RateSample | None:
+    """The first trusted observation from ``moment`` onwards.
+
+    The counterpart of :func:`sample_at_or_before`, and not interchangeable with
+    it. Asking for the day's opening rate with ``sample_at_or_before(midnight)``
+    returns the last sample of the *previous* day — 23:55 under five-minute
+    polling — which is a different number and a different day.
+    """
+    stmt = (
+        select(RateSample)
+        .where(
+            RateSample.source_currency == source_currency,
+            RateSample.target_currency == target_currency,
+            RateSample.retrieved_at >= moment,
+            usable_sample(),
+        )
+        .order_by(RateSample.retrieved_at.asc(), RateSample.id.asc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
 @dataclass(frozen=True, slots=True)
 class RateExtremes:
     """The lowest and highest rate over a window.
@@ -714,17 +738,32 @@ async def extremes(
     source_currency: str,
     target_currency: str,
     since: datetime,
+    until: datetime | None = None,
 ) -> RateExtremes:
     """Lowest and highest rate over a window.
+
+    ``until`` is **exclusive** and exists for one reason: asking "is this a new
+    high?" has to compare against the window *before* this observation. A window
+    that includes the current sample always contains it as its own maximum, so
+    the question answers itself and every sample looks like a new high.
 
     The float companion column does the aggregation; the two matching samples
     are then re-read so the returned values are exact Decimals.
     """
+
+    def window() -> list[Any]:
+        clauses: list[Any] = [
+            RateSample.source_currency == source_currency,
+            RateSample.target_currency == target_currency,
+            RateSample.retrieved_at >= since,
+            usable_sample(),
+        ]
+        if until is not None:
+            clauses.append(RateSample.retrieved_at < until)
+        return clauses
+
     stmt = select(func.min(RateSample.rate_numeric), func.max(RateSample.rate_numeric)).where(
-        RateSample.source_currency == source_currency,
-        RateSample.target_currency == target_currency,
-        RateSample.retrieved_at >= since,
-        usable_sample(),
+        *window()
     )
     low_float, high_float = (await session.execute(stmt)).one()
     if low_float is None or high_float is None:
@@ -733,19 +772,7 @@ async def extremes(
     async def exact(ascending: bool) -> Decimal | None:
         order = RateSample.rate_numeric.asc() if ascending else RateSample.rate_numeric.desc()
         row = (
-            (
-                await session.execute(
-                    select(RateSample)
-                    .where(
-                        RateSample.source_currency == source_currency,
-                        RateSample.target_currency == target_currency,
-                        RateSample.retrieved_at >= since,
-                        usable_sample(),
-                    )
-                    .order_by(order)
-                    .limit(1)
-                )
-            )
+            (await session.execute(select(RateSample).where(*window()).order_by(order).limit(1)))
             .scalars()
             .first()
         )

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import ActorDep, SessionDep, SettingsDep
 from app.api.errors import ConflictError, ValidationError
+from app.logging_setup import get_logger
 from app.models.position import FxPosition
 from app.schemas.position import (
     AlertHistoryRow,
@@ -34,10 +35,12 @@ from app.schemas.position import (
     StateExport,
     StateImport,
 )
-from app.services import position_service
+from app.services import fx_alerts, notifications, position_service
 from app.services.conversion_service import ConversionError, DuplicateConversionError
 from app.services.position_math import RealisedTotal
 from app.services.position_service import PositionError
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/fx", tags=["fx position"])
 
@@ -84,13 +87,25 @@ async def read_state(session: SessionDep, settings: SettingsDep) -> FxStateOut:
     status_code=status.HTTP_200_OK,
     summary="Save the whole position",
 )
-async def write_state(payload: PositionIn, session: SessionDep, actor: ActorDep) -> PositionOut:
-    """Replace every field. Use ``PATCH`` to change one of them."""
-    return _position_out(await position_service.replace_state(session, payload, actor=actor))
+async def write_state(
+    payload: PositionIn, session: SessionDep, settings: SettingsDep, actor: ActorDep
+) -> PositionOut:
+    """Replace every field. Use ``PATCH`` to change one of them.
+
+    Evaluates the mortgage conditions afterwards for the same reason ``PATCH``
+    does — and on a *first* save that evaluation says nothing and simply records
+    where things stand. Without it, the first edit after filling in the form
+    would look like the app's first sight of the position and be swallowed.
+    """
+    position = await position_service.replace_state(session, payload, actor=actor)
+    await _announce_position_change(session, settings)
+    return _position_out(position)
 
 
 @router.patch("/state", response_model=PositionOut, summary="Update part of the position")
-async def patch_state(payload: PositionPatch, session: SessionDep, actor: ActorDep) -> PositionOut:
+async def patch_state(
+    payload: PositionPatch, session: SessionDep, settings: SettingsDep, actor: ActorDep
+) -> PositionOut:
     """Apply only the fields present in the request body.
 
     A field sent as ``null`` is cleared; a field left out is untouched.
@@ -99,7 +114,27 @@ async def patch_state(payload: PositionPatch, session: SessionDep, actor: ActorD
         position = await position_service.update_state(session, payload, actor=actor)
     except PositionError as exc:
         raise ValidationError(str(exc)) from exc
+
+    # Entering a new shortfall should say so now rather than at the next poll,
+    # up to five minutes later. Only the conditions that read no rate are
+    # evaluated: nothing about the market has changed by someone typing.
+    await _announce_position_change(session, settings)
     return _position_out(position)
+
+
+async def _announce_position_change(session: SessionDep, settings: SettingsDep) -> None:
+    """Deliver any mortgage milestone the edit just crossed.
+
+    Failing to alert must never fail the save. The figure is already stored by
+    the time this runs, and a missed notification is a smaller problem than a
+    500 on a form that actually worked.
+    """
+    try:
+        run = await fx_alerts.evaluate(session, settings, position_only=True)
+        for notification in run.notifications:
+            await notifications.send(session, notification, settings, cooldown_minutes=0)
+    except Exception:  # pragma: no cover - defensive
+        log.warning("fx_alert_after_patch_failed", exc_info=True)
 
 
 @router.get("/conversions", response_model=ConversionHistoryOut, summary="Conversion history")
@@ -185,7 +220,21 @@ async def read_alerts(
     send is exactly the one worth seeing.
     """
     rows = await position_service.get_alert_history(session, limit=limit, offset=offset)
-    return [AlertHistoryRow.model_validate(row) for row in rows]
+    states = await position_service.alert_states(session)
+    out: list[AlertHistoryRow] = []
+    for row in rows:
+        alert = AlertHistoryRow.model_validate(row)
+        state = states.get(row.entity_id or "")
+        if state is not None:
+            alert = alert.model_copy(
+                update={
+                    "rate": state.last_value,
+                    "reference_value": state.last_reference_value,
+                    "money_value": state.last_money_value,
+                }
+            )
+        out.append(alert)
+    return out
 
 
 @router.get("/state/export", response_model=StateExport, summary="Export the position")

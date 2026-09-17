@@ -238,6 +238,15 @@ class RecordConversionIn(StrictSchema):
 
 
 class AlertHistoryRow(Schema):
+    """One thing the app said, and what it said it about.
+
+    ``rate`` and ``reference_value`` are the figures the movement alerts
+    remember — the rate spoken at, and the high it beat or the day's open it
+    was measured from. They come from the alert's state row rather than the log
+    line, so they are the *current* stored values for that condition, not a
+    snapshot from when the message was written.
+    """
+
     id: int
     rule_type: str
     severity: str
@@ -246,6 +255,9 @@ class AlertHistoryRow(Schema):
     entity_id: str | None
     created_at: datetime
     delivered: bool
+    rate: RateStr | None = None
+    reference_value: RateStr | None = None
+    money_value: MoneyStr | None = None
 
 
 class StateExport(Schema):
