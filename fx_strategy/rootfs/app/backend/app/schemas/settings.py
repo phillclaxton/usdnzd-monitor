@@ -207,6 +207,76 @@ class ZoneSettings(Section):
     zones: list[RateZoneSetting] = Field(default_factory=_default_zones)
 
 
+def _default_watch_levels() -> list[Decimal]:
+    """The levels from the product specification.
+
+    Round numbers people actually talk about, not targets. Crossing one is worth
+    knowing; it is not an instruction to do anything.
+    """
+    return [
+        Decimal("1.7000"),
+        Decimal("1.7200"),
+        Decimal("1.7300"),
+        Decimal("1.7400"),
+        Decimal("1.7500"),
+        Decimal("1.7600"),
+        Decimal("1.7700"),
+        Decimal("1.7800"),
+        Decimal("1.8000"),
+    ]
+
+
+class FxAlertSettings(Section):
+    """When the app should say something about the position.
+
+    These are *preferences about behaviour*, which is why they are settings and
+    not columns on ``fx_position``: the measured offset shortfall is a fact, but
+    "tell me when the daily carrying cost drops below five dollars" is a choice.
+
+    Every threshold here exists so that alert volume can be turned down without
+    a code change. The one most likely to need it on first contact with a real
+    market is ``minimum_change_since_last_alert``.
+    """
+
+    enabled: bool = True
+
+    #: Alert once the rate has moved this far since the last time anything was
+    #: said about it.
+    absolute_rate_move: RateStr = Decimal("0.0050")
+    #: As a percentage of the day's opening rate, so 0.50 means half a percent.
+    intraday_percent_move: DecimalStr = Decimal("0.50")
+
+    alert_new_7d_high: bool = True
+    alert_new_30d_high: bool = True
+    alert_new_90d_high: bool = True
+    #: How long a new high stays quiet before another can be reported, unless
+    #: the rate has also moved another ``minimum_change_since_last_alert``.
+    new_high_cooldown_minutes: int = Field(default=240, ge=0)
+
+    alert_round_number_breaks: bool = True
+    watch_levels: list[RateStr] = Field(default_factory=_default_watch_levels)
+
+    #: The remaining balance's target-currency value changing by this much.
+    material_nzd_value_change: DecimalStr = Decimal("5000")
+    #: A second, louder threshold for a move worth interrupting someone for.
+    secondary_nzd_value_change: DecimalStr = Decimal("10000")
+
+    #: Offset shortfall levels worth remarking on, in target currency.
+    offset_shortfall_thresholds: list[DecimalStr] = Field(
+        default_factory=lambda: [Decimal("100000"), Decimal("50000"), Decimal("0")]
+    )
+    #: Daily carrying cost levels, in target currency.
+    daily_cost_thresholds: list[DecimalStr] = Field(
+        default_factory=lambda: [Decimal("10"), Decimal("5")]
+    )
+
+    #: **The gate that does not exist for tranche alerts.** Having spoken at
+    #: 1.7502, say nothing again until the rate has moved at least this far —
+    #: which is what stops a rate oscillating a pip around a level producing one
+    #: alert per cooldown window for ever.
+    minimum_change_since_last_alert: RateStr = Decimal("0.0050")
+
+
 class SimulationSettings(Section):
     enabled: bool = False
     simulated_rate: RateStr | None = None
@@ -230,6 +300,7 @@ class Settings(BaseModel):
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     zones: ZoneSettings = Field(default_factory=ZoneSettings)
     simulation: SimulationSettings = Field(default_factory=SimulationSettings)
+    fx_alerts: FxAlertSettings = Field(default_factory=FxAlertSettings)
 
 
 class SettingsUpdate(BaseModel):
@@ -245,3 +316,4 @@ class SettingsUpdate(BaseModel):
     retention: RetentionSettings | None = None
     zones: ZoneSettings | None = None
     simulation: SimulationSettings | None = None
+    fx_alerts: FxAlertSettings | None = None

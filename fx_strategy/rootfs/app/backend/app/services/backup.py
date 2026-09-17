@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 import platform
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Date, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import __version__
@@ -28,6 +28,7 @@ from app.database import (
 from app.logging_setup import get_logger, get_ring_buffer
 from app.models.alert import NotificationLog, TrancheAlertState
 from app.models.audit import AuditEvent, AuditEventType
+from app.models.position import FxAlertState, FxPosition
 from app.models.rate import FeeModel, ManualRate, ProviderStatus, RateAggregate, RateSample
 from app.models.setting import AppSetting
 from app.models.strategy import Conversion, DeadlineRequirement, Strategy, Tranche
@@ -46,7 +47,11 @@ EXCLUDED_TABLES = frozenset({"secrets"})
 def _serialize(value: Any) -> Any:
     if isinstance(value, Decimal):
         return format(value, "f")
+    # datetime first: a datetime *is* a date, so the wider check would swallow
+    # it and drop the time.
     if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
         return value.isoformat()
     return value
 
@@ -78,6 +83,8 @@ async def create_backup(
         "tranches": await _dump(session, Tranche),
         "deadline_requirements": await _dump(session, DeadlineRequirement),
         "conversions": await _dump(session, Conversion),
+        "fx_position": await _dump(session, FxPosition),
+        "fx_alert_state": await _dump(session, FxAlertState),
         "fee_models": await _dump(session, FeeModel),
         "rate_samples": await _dump(session, RateSample),
         "rate_aggregates": await _dump(session, RateAggregate),
@@ -124,6 +131,8 @@ RESTORE_ORDER: tuple[tuple[str, Any], ...] = (
     ("tranches", Tranche),
     ("deadline_requirements", DeadlineRequirement),
     ("conversions", Conversion),
+    ("fx_position", FxPosition),
+    ("fx_alert_state", FxAlertState),
     ("rate_samples", RateSample),
     ("rate_aggregates", RateAggregate),
     ("manual_rates", ManualRate),
@@ -157,6 +166,10 @@ def _coerce(model: Any, row: dict[str, Any]) -> dict[str, Any]:
             values[column.name] = parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
         elif isinstance(column.type, DecimalText):
             values[column.name] = Decimal(str(value))
+        elif isinstance(column.type, Date):
+            # SQLAlchemy's Date binds a ``date``, not the ISO string a JSON
+            # document carries it as.
+            values[column.name] = date.fromisoformat(str(value))
         else:
             # Custom types raise rather than declaring a python_type, so this
             # asks carefully and otherwise passes the value straight through.
@@ -177,8 +190,13 @@ async def restore_backup(
 ) -> dict[str, int]:
     """Load a backup document.
 
-    Refuses to merge into a database that already has strategies unless
-    ``replace`` is set, so a restore cannot silently duplicate a portfolio.
+    Refuses to merge into a database that already holds a portfolio unless
+    ``replace`` is set, so a restore cannot silently duplicate one.
+
+    "Holds a portfolio" means a strategy **or** a position. Counting only
+    strategies was right when one was required to use the app at all; now that a
+    configured install can have no strategies and a live position, that test
+    alone would wave a merge straight over the top of it.
     """
     if not isinstance(document, dict) or "data" not in document:
         raise RestoreError("This file is not a FX Strategy Manager backup.")
@@ -189,11 +207,20 @@ async def restore_backup(
             f"{BACKUP_FORMAT_VERSION}."
         )
 
-    existing = (await session.execute(select(func.count()).select_from(Strategy))).scalar_one()
-    if existing and not replace:
+    strategies = (await session.execute(select(func.count()).select_from(Strategy))).scalar_one()
+    positions = (await session.execute(select(func.count()).select_from(FxPosition))).scalar_one()
+    if (strategies or positions) and not replace:
+        holding = " and ".join(
+            part
+            for part in (
+                f"{strategies} strategy(ies)" if strategies else "",
+                "a saved position" if positions else "",
+            )
+            if part
+        )
         raise RestoreError(
-            f"This installation already has {existing} strategy(ies). "
-            "Set replace=true to overwrite them, or restore into a fresh install."
+            f"This installation already has {holding}. "
+            "Set replace=true to overwrite what is here, or restore into a fresh install."
         )
 
     if replace:
