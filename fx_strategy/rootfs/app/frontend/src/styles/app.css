@@ -657,3 +657,24 @@ button.is-danger {
   border-radius: var(--fx-radius-sm);
   padding: 1px 5px;
 }
+
+/* Recent alerts on the dashboard: what the app has said, newest first. */
+.fx-alert-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fx-alert-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--fx-border);
+}
+
+.fx-alert-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.fx-alert-list p {
+  margin: 2px 0 0;
+}
