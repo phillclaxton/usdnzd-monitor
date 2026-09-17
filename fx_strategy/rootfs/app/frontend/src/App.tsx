@@ -6,6 +6,7 @@ import { Loading } from './components/ui';
 import ConversionsPage from './pages/ConversionsPage';
 import Dashboard from './pages/Dashboard';
 import DiagnosticsPage from './pages/DiagnosticsPage';
+import PositionPage from './pages/PositionPage';
 import ScenariosPage from './pages/ScenariosPage';
 import SettingsPage from './pages/SettingsPage';
 import SetupWizard from './pages/SetupWizard';
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/chart" element={<ChartPage />} />
           <Route path="/strategy" element={<StrategyEditor />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/position" element={<PositionPage />} />
           <Route path="/conversions" element={<ConversionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />

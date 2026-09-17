@@ -1,87 +1,102 @@
 import { useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 
-import { Banner, Card, EmptyState, Field, Loading, Tag } from '@/components/ui';
+import { Banner, Card, EmptyState, Field, Loading, Modal, Tag } from '@/components/ui';
+import {
+  useConversionHistory,
+  useCorrectConversion,
+  useDeleteConversion,
+  useFxState,
+  useRecordConversion,
+} from '@/hooks/usePosition';
 import { useSettings } from '@/hooks/useSettings';
-import { useStrategies } from '@/hooks/useStrategy';
 import { ApiError, api } from '@/lib/api';
 import { formatDateTime } from '@/lib/datetime';
-import { formatDecimal, formatRate, roundTo } from '@/lib/decimal';
-import type { Conversion, ConversionList, ConversionImportPreview } from '@/types';
+import { formatDecimal, formatRate } from '@/lib/decimal';
+import type { ConversionHistoryRow, ConversionImportPreview } from '@/types';
+
+/**
+ * The sentence that has to be on screen rather than in a tooltip.
+ *
+ * Correcting a historical record does not credit the balance back: the balance
+ * is yours to state, and a correction is restated on the position form. The
+ * moment someone edits an amount is the moment they would otherwise assume
+ * otherwise, so it is said right there.
+ */
+const BALANCE_WARNING =
+  'Editing this historical conversion does not change your current balance. ' +
+  'If the balance is wrong, restate it on the Position page.';
 
 interface FormState {
   executed_at: string;
   source_amount: string;
   target_amount: string;
-  fee_target_currency: string;
+  fee_source_currency: string;
   gross_rate: string;
   provider_transaction_id: string;
-  tranche_id: string;
   notes: string;
-  simulated: boolean;
-  correcting_earlier_record: boolean;
+  amounts_estimated: boolean;
 }
 
-const EMPTY: FormState = {
-  executed_at: new Date().toISOString().slice(0, 16),
-  source_amount: '',
-  target_amount: '',
-  fee_target_currency: '',
-  gross_rate: '',
-  provider_transaction_id: '',
-  tranche_id: '',
-  notes: '',
-  simulated: false,
-  correcting_earlier_record: false,
-};
+function emptyForm(): FormState {
+  return {
+    executed_at: new Date().toISOString().slice(0, 16),
+    source_amount: '',
+    target_amount: '',
+    fee_source_currency: '',
+    gross_rate: '',
+    provider_transaction_id: '',
+    notes: '',
+    amounts_estimated: false,
+  };
+}
+
+function formFrom(row: ConversionHistoryRow): FormState {
+  return {
+    executed_at: row.executed_at.slice(0, 16),
+    source_amount: row.source_amount,
+    target_amount: row.target_amount,
+    fee_source_currency: row.fee_source_currency ?? '',
+    gross_rate: row.gross_rate,
+    provider_transaction_id: '',
+    notes: row.notes,
+    amounts_estimated: row.amounts_estimated,
+  };
+}
 
 export default function ConversionsPage() {
   const settings = useSettings();
-  const strategies = useStrategies();
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const state = useFxState();
+  const history = useConversionHistory();
+  const record = useRecordConversion();
+  const correct = useCorrectConversion();
+  const remove = useDeleteConversion();
+
+  const [form, setForm] = useState<FormState>(emptyForm);
+  const [editing, setEditing] = useState<ConversionHistoryRow | null>(null);
+  const [editForm, setEditForm] = useState<FormState>(emptyForm);
   const [preview, setPreview] = useState<ConversionImportPreview | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const strategy = strategies.data?.[0] ?? null;
-  const strategyId = strategy?.id ?? null;
   const timezone = settings.data?.general.timezone ?? 'Pacific/Auckland';
   const ratePlaces = settings.data?.formatting.rate_decimal_places ?? 4;
-
-  const list = useQuery({
-    queryKey: ['conversions', strategyId],
-    queryFn: () => api.get<ConversionList>(`conversions?strategy_id=${strategyId}`),
-    enabled: strategyId !== null,
-  });
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['conversions'] });
-    void queryClient.invalidateQueries({ queryKey: ['strategy'] });
-  };
-
-  const record = useMutation({
-    mutationFn: (payload: Record<string, unknown>) =>
-      api.post<Conversion[]>('conversions', payload),
-    onSuccess: () => {
-      setForm(EMPTY);
-      invalidate();
-    },
-  });
-
-  const remove = useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
-      api.del(`conversions/${id}?reason=${encodeURIComponent(reason)}`),
-    onSuccess: invalidate,
-  });
+  const source =
+    state.data?.position?.source_currency ?? settings.data?.general.source_currency ?? 'USD';
+  const target =
+    state.data?.position?.target_currency ?? settings.data?.general.target_currency ?? 'NZD';
+  const metrics = state.data?.metrics ?? null;
+  const realised = history.data?.realised ?? null;
+  const hasPosition = state.data?.position != null;
 
   const importCsv = useMutation({
     mutationFn: async ({ file, commit }: { file: File; commit: boolean }) => {
       const body = new FormData();
       body.append('file', file);
-      const response = await fetch(
-        api.url(`conversions/import?strategy_id=${strategyId}&commit=${commit}`),
-        { method: 'POST', body, credentials: 'same-origin' },
-      );
+      const response = await fetch(api.url(`conversions/import?commit=${commit}`), {
+        method: 'POST',
+        body,
+        credentials: 'same-origin',
+      });
       if (!response.ok) {
         const detail = (await response.json()) as { error?: { message?: string } };
         throw new Error(detail.error?.message ?? 'Import failed.');
@@ -90,55 +105,63 @@ export default function ConversionsPage() {
     },
     onSuccess: (result) => {
       setPreview(result);
-      if (result.committed) invalidate();
+      if (result.committed) void history.refetch();
     },
   });
 
-  if (strategies.isLoading) return <Loading label="Loading…" />;
-  if (!strategy) {
-    return (
-      <Card title="Conversions">
-        <EmptyState glyph="💱" title="No strategy yet">
-          <p>Create a strategy before recording conversions against it.</p>
-        </EmptyState>
-      </Card>
-    );
-  }
-
-  const source = strategy.source_currency;
-  const target = strategy.target_currency;
-  const impliedRate =
-    form.source_amount && form.target_amount && Number(form.source_amount) > 0
-      ? roundTo(String(Number(form.target_amount) / Number(form.source_amount)), ratePlaces)
-      : null;
-
   const submit = () => {
-    record.mutate({
-      strategy_id: strategy.id,
-      executed_at: new Date(form.executed_at).toISOString(),
-      source_amount: form.source_amount,
-      target_amount: form.target_amount,
-      fee_target_currency: form.fee_target_currency || null,
-      gross_rate: form.gross_rate || null,
-      provider_transaction_id: form.provider_transaction_id || null,
-      tranche_id: form.tranche_id ? Number(form.tranche_id) : null,
-      notes: form.notes,
-      simulated: form.simulated,
-      correcting_earlier_record: form.correcting_earlier_record,
-      provider: 'wise',
-      record_source: 'manual',
-    });
+    record.mutate(
+      {
+        executed_at: new Date(form.executed_at).toISOString(),
+        source_amount: form.source_amount,
+        target_amount: form.target_amount,
+        fee_source_currency: form.fee_source_currency || null,
+        gross_rate: form.gross_rate || null,
+        provider_transaction_id: form.provider_transaction_id || null,
+        notes: form.notes,
+        amounts_estimated: form.amounts_estimated,
+      },
+      { onSuccess: () => setForm(emptyForm()) },
+    );
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    correct.mutate(
+      {
+        id: editing.id,
+        body: {
+          executed_at: new Date(editForm.executed_at).toISOString(),
+          source_amount: editForm.source_amount,
+          target_amount: editForm.target_amount,
+          fee_source_currency: editForm.fee_source_currency || null,
+          gross_rate: editForm.gross_rate || null,
+          notes: editForm.notes,
+          amounts_estimated: editForm.amounts_estimated,
+          correction_reason: 'Corrected from the conversions page.',
+        },
+      },
+      { onSuccess: () => setEditing(null) },
+    );
   };
 
   return (
     <>
       <Card
         title="Record a conversion"
-        subtitle="Enter what actually happened, from your Wise statement. Nothing here initiates a conversion."
+        subtitle={
+          hasPosition
+            ? `Enter what actually happened, from your Wise statement. This reduces your ${source} balance. Nothing here initiates a conversion.`
+            : 'Enter what actually happened, from your Wise statement. Nothing here initiates a conversion.'
+        }
       >
-        {record.isError && (
-          <Banner tone="error">{(record.error as ApiError).message}</Banner>
+        {!hasPosition && (
+          <Banner tone="warning">
+            There is no position saved yet, so there is no balance to reduce. Save your position
+            first.
+          </Banner>
         )}
+        {record.isError && <Banner tone="error">{(record.error as ApiError).message}</Banner>}
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -160,7 +183,7 @@ export default function ConversionsPage() {
               type="text"
               inputMode="decimal"
               required
-              placeholder="120000"
+              placeholder="30000"
               value={form.source_amount}
               onChange={(event) => setForm({ ...form, source_amount: event.target.value })}
             />
@@ -175,21 +198,19 @@ export default function ConversionsPage() {
               type="text"
               inputMode="decimal"
               required
-              placeholder="207840"
+              placeholder="52500"
               value={form.target_amount}
               onChange={(event) => setForm({ ...form, target_amount: event.target.value })}
             />
           </Field>
-          <Field label={`Wise fee (${target})`} hint="optional" htmlFor="fee">
+          <Field label={`Fee (${source})`} hint="optional" htmlFor="fee">
             <input
               id="fee"
               type="text"
               inputMode="decimal"
-              placeholder="520"
-              value={form.fee_target_currency}
-              onChange={(event) =>
-                setForm({ ...form, fee_target_currency: event.target.value })
-              }
+              placeholder="115.43"
+              value={form.fee_source_currency}
+              onChange={(event) => setForm({ ...form, fee_source_currency: event.target.value })}
             />
           </Field>
           <Field
@@ -201,7 +222,7 @@ export default function ConversionsPage() {
               id="gross-rate"
               type="text"
               inputMode="decimal"
-              placeholder="1.7320"
+              placeholder="1.7500"
               value={form.gross_rate}
               onChange={(event) => setForm({ ...form, gross_rate: event.target.value })}
             />
@@ -216,21 +237,6 @@ export default function ConversionsPage() {
               }
             />
           </Field>
-          <Field label="Assign to tranche" htmlFor="tranche">
-            <select
-              id="tranche"
-              value={form.tranche_id}
-              onChange={(event) => setForm({ ...form, tranche_id: event.target.value })}
-            >
-              <option value="">Unassigned</option>
-              {strategy.tranches.map((tranche) => (
-                <option key={tranche.id} value={tranche.id}>
-                  Tranche {tranche.sequence} — target{' '}
-                  {formatRate(tranche.target_rate, ratePlaces)}
-                </option>
-              ))}
-            </select>
-          </Field>
           <Field label="Notes" htmlFor="notes">
             <textarea
               id="notes"
@@ -241,34 +247,15 @@ export default function ConversionsPage() {
           </Field>
           <div className="fx-inline">
             <input
-              id="simulated"
+              id="estimated"
               type="checkbox"
-              checked={form.simulated}
-              onChange={(event) => setForm({ ...form, simulated: event.target.checked })}
+              checked={form.amounts_estimated}
+              onChange={(event) => setForm({ ...form, amounts_estimated: event.target.checked })}
             />
-            <label htmlFor="simulated">
-              Mark as simulated — excluded from your real position
+            <label htmlFor="estimated">
+              One of these amounts is my reconstruction, not a figure off a receipt
             </label>
           </div>
-          <div className="fx-inline" style={{ marginTop: 8 }}>
-            <input
-              id="correcting"
-              type="checkbox"
-              checked={form.correcting_earlier_record}
-              onChange={(event) =>
-                setForm({ ...form, correcting_earlier_record: event.target.checked })
-              }
-            />
-            <label htmlFor="correcting">
-              I am correcting an earlier record (allows exceeding the remaining balance)
-            </label>
-          </div>
-
-          {impliedRate && (
-            <p className="fx-stat-note">
-              Effective rate: <strong>{impliedRate}</strong> {target} per 1 {source}
-            </p>
-          )}
 
           <div className="fx-toolbar" style={{ marginTop: 'var(--fx-gap)' }}>
             <button type="submit" className="is-primary" disabled={record.isPending}>
@@ -280,10 +267,10 @@ export default function ConversionsPage() {
 
       <Card
         title="Import from CSV"
-        subtitle="Required columns: executed_at, source_amount, target_amount."
+        subtitle="Required columns: executed_at, source_amount, target_amount. Imported rows are history and do not change your balance."
         actions={
           <a
-            href={api.url(`conversions/export?strategy_id=${strategy.id}`)}
+            href={api.url('conversions/export')}
             download
             className="fx-tag"
             style={{ textDecoration: 'none' }}
@@ -292,9 +279,7 @@ export default function ConversionsPage() {
           </a>
         }
       >
-        {importCsv.isError && (
-          <Banner tone="error">{(importCsv.error as Error).message}</Banner>
-        )}
+        {importCsv.isError && <Banner tone="error">{(importCsv.error as Error).message}</Banner>}
         <input ref={fileInput} type="file" accept=".csv,text/csv" aria-label="CSV file" />
         <div className="fx-toolbar" style={{ marginTop: 8 }}>
           <button
@@ -323,8 +308,8 @@ export default function ConversionsPage() {
         {preview && (
           <div style={{ marginTop: 'var(--fx-gap)' }}>
             <p className="fx-stat-note">
-              {preview.total_rows} row(s) read · {preview.accepted} importable ·{' '}
-              {preview.rejected} rejected · {preview.duplicates} already recorded
+              {preview.total_rows} row(s) read · {preview.accepted} importable · {preview.rejected}{' '}
+              rejected · {preview.duplicates} already recorded
               {preview.committed ? ` · ${preview.imported} imported` : ''}
             </p>
             {preview.errors.length > 0 && (
@@ -342,45 +327,53 @@ export default function ConversionsPage() {
       </Card>
 
       <Card title="Recorded conversions">
-        {list.isLoading && <Loading />}
-        {list.data && list.data.conversions.length === 0 && (
+        {history.isLoading && <Loading />}
+        {history.data && history.data.conversions.length === 0 && (
           <EmptyState glyph="💱" title="Nothing recorded yet">
             <p>
-              When Wise completes a conversion, record it here so your remaining balance and
-              blended rate stay accurate.
+              When Wise completes a conversion, record it here so your balance and realised
+              improvement stay accurate.
             </p>
           </EmptyState>
         )}
-        {list.data && list.data.conversions.length > 0 && (
+        {history.data && history.data.conversions.length > 0 && (
           <>
             <div className="fx-grid" style={{ marginBottom: 'var(--fx-gap)' }}>
               <div className="fx-stat">
                 <div className="fx-stat-label">Total converted</div>
                 <div className="fx-stat-value is-small">
-                  {source} {formatDecimal(list.data.total_source_amount)}
+                  {source} {formatDecimal(metrics?.total_source_converted)}
                 </div>
               </div>
               <div className="fx-stat">
                 <div className="fx-stat-label">Total received</div>
                 <div className="fx-stat-value is-small">
-                  {target} {formatDecimal(list.data.total_target_amount)}
+                  {target} {formatDecimal(metrics?.total_target_received)}
                 </div>
               </div>
               <div className="fx-stat">
                 <div className="fx-stat-label">
-                  <span>Blended effective rate</span>
-                  <Tag quality="actual" />
+                  <span>Realised improvement</span>
+                  {realised?.includes_estimates && <Tag quality="estimate" />}
                 </div>
                 <div className="fx-stat-value is-small">
-                  {formatRate(list.data.blended_effective_rate, ratePlaces)}
+                  {history.data.baseline_rate === null
+                    ? 'Set a baseline rate'
+                    : `${target} ${formatDecimal(realised?.confirmed)}`}
                 </div>
+                {realised?.includes_estimates && (
+                  <div className="fx-stat-note">
+                    plus about {target} {formatDecimal(realised.estimated)} from rows whose amounts
+                    are estimated
+                  </div>
+                )}
               </div>
               <div className="fx-stat">
                 <div className="fx-stat-label">Fees recorded</div>
                 <div className="fx-stat-value is-small">
-                  {list.data.total_fees === null
+                  {metrics?.total_fees_target == null
                     ? 'None recorded'
-                    : formatDecimal(list.data.total_fees)}
+                    : formatDecimal(metrics.total_fees_target)}
                 </div>
               </div>
             </div>
@@ -395,14 +388,14 @@ export default function ConversionsPage() {
                     <th>Rate</th>
                     <th>Effective</th>
                     <th>Fee</th>
-                    <th className="fx-left">Tranche</th>
-                    <th className="fx-left">Reference</th>
+                    <th>Improvement</th>
+                    <th>Cumulative</th>
                     <th className="fx-left">Source</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {list.data.conversions.map((row) => (
+                  {history.data.conversions.map((row) => (
                     <tr key={row.id}>
                       <td className="fx-left">{formatDateTime(row.executed_at, timezone)}</td>
                       <td>{formatDecimal(row.source_amount)}</td>
@@ -410,35 +403,59 @@ export default function ConversionsPage() {
                       <td>{formatRate(row.gross_rate, ratePlaces)}</td>
                       <td>{formatRate(row.effective_rate, ratePlaces)}</td>
                       <td>
-                        {row.fee_total_target_equivalent === null
+                        {row.fee_source_currency === null
                           ? 'Not recorded'
-                          : formatDecimal(row.fee_total_target_equivalent)}
+                          : formatDecimal(row.fee_source_currency)}
                       </td>
-                      <td className="fx-left">
-                        {strategy.tranches.find((t) => t.id === row.tranche_id)?.sequence ?? '—'}
-                      </td>
-                      <td className="fx-left">{row.provider_transaction_id ?? '—'}</td>
-                      <td className="fx-left">
-                        {row.simulated ? (
-                          <Tag quality="warning">Simulated</Tag>
-                        ) : (
-                          <Tag quality="actual">{row.record_source}</Tag>
+                      <td>
+                        {row.improvement === null ? '—' : formatDecimal(row.improvement)}
+                        {row.fee_unrecorded && row.improvement !== null && (
+                          <>
+                            {' '}
+                            <Tag quality="warning">No fee</Tag>
+                          </>
                         )}
                       </td>
                       <td>
-                        <button
-                          type="button"
-                          className="is-danger"
-                          onClick={() => {
-                            const reason = window.prompt(
-                              'Deleting a financial record. The audit trail keeps its values.\n\nWhy are you deleting it?',
-                              '',
-                            );
-                            if (reason !== null) remove.mutate({ id: row.id, reason });
-                          }}
-                        >
-                          Delete
-                        </button>
+                        {row.cumulative_improvement === null
+                          ? '—'
+                          : formatDecimal(row.cumulative_improvement)}
+                      </td>
+                      <td className="fx-left">
+                        {row.amounts_estimated && <Tag quality="estimate" />}
+                        {row.simulated ? (
+                          <Tag quality="warning">Simulated</Tag>
+                        ) : (
+                          !row.amounts_estimated && <Tag quality="actual">{row.record_source}</Tag>
+                        )}
+                      </td>
+                      <td>
+                        <div className="fx-toolbar">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditing(row);
+                              setEditForm(formFrom(row));
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="is-danger"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Deleting a financial record. The audit trail keeps its values.\n\n${BALANCE_WARNING}`,
+                                )
+                              ) {
+                                remove.mutate(row.id);
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -448,6 +465,106 @@ export default function ConversionsPage() {
           </>
         )}
       </Card>
+
+      {editing && (
+        <Modal
+          title={`Edit conversion ${editing.id}`}
+          onClose={() => setEditing(null)}
+          footer={
+            <>
+              <button type="button" onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="is-primary"
+                disabled={correct.isPending}
+                onClick={saveEdit}
+              >
+                {correct.isPending ? 'Saving…' : 'Save correction'}
+              </button>
+            </>
+          }
+        >
+          <Banner tone="warning">{BALANCE_WARNING}</Banner>
+          {correct.isError && <Banner tone="error">{(correct.error as ApiError).message}</Banner>}
+          <Field label="Date and time" htmlFor="edit-executed-at">
+            <input
+              id="edit-executed-at"
+              type="datetime-local"
+              value={editForm.executed_at}
+              onChange={(event) => setEditForm({ ...editForm, executed_at: event.target.value })}
+            />
+          </Field>
+          <Field label={`${source} converted`} htmlFor="edit-source-amount">
+            <input
+              id="edit-source-amount"
+              type="text"
+              inputMode="decimal"
+              value={editForm.source_amount}
+              onChange={(event) => setEditForm({ ...editForm, source_amount: event.target.value })}
+            />
+          </Field>
+          <Field label={`${target} received`} htmlFor="edit-target-amount">
+            <input
+              id="edit-target-amount"
+              type="text"
+              inputMode="decimal"
+              value={editForm.target_amount}
+              onChange={(event) => setEditForm({ ...editForm, target_amount: event.target.value })}
+            />
+          </Field>
+          <Field
+            label={`Fee (${source})`}
+            hint="leave empty if it was never recorded"
+            htmlFor="edit-fee"
+          >
+            <input
+              id="edit-fee"
+              type="text"
+              inputMode="decimal"
+              value={editForm.fee_source_currency}
+              onChange={(event) =>
+                setEditForm({ ...editForm, fee_source_currency: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="Rate Wise displayed" htmlFor="edit-gross-rate">
+            <input
+              id="edit-gross-rate"
+              type="text"
+              inputMode="decimal"
+              value={editForm.gross_rate}
+              onChange={(event) => setEditForm({ ...editForm, gross_rate: event.target.value })}
+            />
+          </Field>
+          <Field label="Notes" htmlFor="edit-notes">
+            <textarea
+              id="edit-notes"
+              rows={2}
+              value={editForm.notes}
+              onChange={(event) => setEditForm({ ...editForm, notes: event.target.value })}
+            />
+          </Field>
+          <div className="fx-inline">
+            <input
+              id="edit-estimated"
+              type="checkbox"
+              checked={editForm.amounts_estimated}
+              onChange={(event) =>
+                setEditForm({ ...editForm, amounts_estimated: event.target.checked })
+              }
+            />
+            <label htmlFor="edit-estimated">
+              One of these amounts is my reconstruction, not a figure off a receipt
+            </label>
+          </div>
+          <p className="fx-stat-note">
+            Clearing that box once you have the real receipt removes this row from the estimated
+            total on its own.
+          </p>
+        </Modal>
+      )}
     </>
   );
 }

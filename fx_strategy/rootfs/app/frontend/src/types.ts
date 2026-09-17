@@ -781,3 +781,141 @@ export interface GenericProviderStatus {
   rate: string | null;
   latency_ms: number | null;
 }
+
+// --- The FX position -------------------------------------------------------
+//
+// Money and rates are `string` throughout, exactly as the backend sends them.
+// A `number` anywhere here would round through binary floating point, which is
+// the error the whole Decimal pipeline exists to prevent.
+//
+// A `null` metric means "not calculable from what has been entered" — almost
+// always a missing baseline rate — and never zero. Screens say what is missing
+// rather than rendering 0.00, which is a different and wrong claim.
+
+export interface Position {
+  source_currency: string;
+  target_currency: string;
+  current_source_balance: string;
+  baseline_rate: string | null;
+  baseline_date: string | null;
+  /** A fraction, not a percentage: 6.04% is 0.0604. */
+  floating_loan_rate: string | null;
+  current_offset_shortfall_nzd: string | null;
+  monthly_nzd_burn: string | null;
+  notes: string;
+  updated_at: string;
+}
+
+/**
+ * Realised improvement, split so an estimate cannot be read as a fact.
+ *
+ * All three figures are null together, and only when the baseline is unset.
+ * With a baseline and no estimated rows, `estimated` is a real "0.0000".
+ */
+export interface RealisedSplit {
+  confirmed: string | null;
+  estimated: string | null;
+  total: string | null;
+  includes_estimates: boolean;
+}
+
+export interface PositionMetrics {
+  current_rate: string | null;
+  rate_status: string;
+  current_target_value: string | null;
+  realised: RealisedSplit;
+  unrealised_improvement: string | null;
+  /** Confirmed realised plus unrealised — the estimated part stays in `realised`. */
+  total_improvement_confirmed: string | null;
+  total_source_converted: string;
+  total_target_received: string;
+  total_fees_target: string | null;
+  daily_carrying_cost: string | null;
+  monthly_carrying_cost: string | null;
+  months_of_burn: string | null;
+}
+
+export interface LatestConversion {
+  id: number;
+  executed_at: string;
+  source_amount: string;
+  target_amount: string;
+  gross_rate: string;
+  amounts_estimated: boolean;
+}
+
+/** `position` is null on a fresh install, and that is a 200, not an error. */
+export interface FxState {
+  position: Position | null;
+  metrics: PositionMetrics | null;
+  latest_conversion: LatestConversion | null;
+  conversion_count: number;
+}
+
+export interface PositionInput {
+  source_currency?: string;
+  target_currency?: string;
+  current_source_balance?: string;
+  baseline_rate?: string | null;
+  baseline_date?: string | null;
+  floating_loan_rate?: string | null;
+  current_offset_shortfall_nzd?: string | null;
+  monthly_nzd_burn?: string | null;
+  notes?: string;
+}
+
+export interface ConversionHistoryRow {
+  id: number;
+  executed_at: string;
+  source_amount: string;
+  target_amount: string;
+  gross_rate: string;
+  effective_rate: string;
+  fee_source_currency: string | null;
+  fee_total_target_equivalent: string | null;
+  provider: string;
+  record_source: string;
+  notes: string;
+  amounts_estimated: boolean;
+  simulated: boolean;
+  improvement: string | null;
+  cumulative_improvement: string | null;
+  /**
+   * The fee was never recorded, so the improvement is measured on the gross
+   * amount and overstates the gain by whatever the fee actually was.
+   */
+  fee_unrecorded: boolean;
+}
+
+export interface ConversionHistory {
+  conversions: ConversionHistoryRow[];
+  baseline_rate: string | null;
+  realised: RealisedSplit;
+}
+
+export interface RecordConversionInput {
+  executed_at?: string | null;
+  source_amount: string;
+  target_amount: string;
+  gross_rate?: string | null;
+  fee_source_currency?: string | null;
+  fee_target_currency?: string | null;
+  provider?: string;
+  provider_transaction_id?: string | null;
+  notes?: string;
+  amounts_estimated?: boolean;
+}
+
+export interface FxAlert {
+  id: number;
+  rule_type: string;
+  severity: string;
+  title: string;
+  message: string;
+  entity_id: string | null;
+  created_at: string;
+  delivered: boolean;
+  rate: string | null;
+  reference_value: string | null;
+  money_value: string | null;
+}
