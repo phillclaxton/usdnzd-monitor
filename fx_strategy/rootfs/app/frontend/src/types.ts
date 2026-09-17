@@ -887,10 +887,20 @@ export interface ConversionHistoryRow {
   fee_unrecorded: boolean;
 }
 
+/**
+ * The history, its totals, and what it gained.
+ *
+ * The totals are a property of the conversion list, not of the position: a
+ * history with no position saved still has totals worth showing.
+ */
 export interface ConversionHistory {
   conversions: ConversionHistoryRow[];
   baseline_rate: string | null;
   realised: RealisedSplit;
+  total_source_amount: string;
+  total_target_amount: string;
+  blended_effective_rate: string | null;
+  total_fees: string | null;
 }
 
 export interface RecordConversionInput {

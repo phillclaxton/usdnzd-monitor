@@ -170,6 +170,10 @@ async def read_conversions(session: SessionDep) -> ConversionHistoryOut:
         ],
         baseline_rate=history.baseline_rate,
         realised=_split(history.realised),
+        total_source_amount=history.totals["total_source_amount"],
+        total_target_amount=history.totals["total_target_amount"],
+        blended_effective_rate=history.totals["blended_effective_rate"],
+        total_fees=history.totals["total_fees"],
     )
 
 

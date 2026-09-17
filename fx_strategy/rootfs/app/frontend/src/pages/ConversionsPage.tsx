@@ -84,7 +84,6 @@ export default function ConversionsPage() {
     state.data?.position?.source_currency ?? settings.data?.general.source_currency ?? 'USD';
   const target =
     state.data?.position?.target_currency ?? settings.data?.general.target_currency ?? 'NZD';
-  const metrics = state.data?.metrics ?? null;
   const realised = history.data?.realised ?? null;
   const hasPosition = state.data?.position != null;
 
@@ -342,13 +341,13 @@ export default function ConversionsPage() {
               <div className="fx-stat">
                 <div className="fx-stat-label">Total converted</div>
                 <div className="fx-stat-value is-small">
-                  {source} {formatDecimal(metrics?.total_source_converted)}
+                  {source} {formatDecimal(history.data.total_source_amount)}
                 </div>
               </div>
               <div className="fx-stat">
                 <div className="fx-stat-label">Total received</div>
                 <div className="fx-stat-value is-small">
-                  {target} {formatDecimal(metrics?.total_target_received)}
+                  {target} {formatDecimal(history.data.total_target_amount)}
                 </div>
               </div>
               <div className="fx-stat">
@@ -371,9 +370,9 @@ export default function ConversionsPage() {
               <div className="fx-stat">
                 <div className="fx-stat-label">Fees recorded</div>
                 <div className="fx-stat-value is-small">
-                  {metrics?.total_fees_target == null
+                  {history.data.total_fees === null
                     ? 'None recorded'
-                    : formatDecimal(metrics.total_fees_target)}
+                    : formatDecimal(history.data.total_fees)}
                 </div>
               </div>
             </div>

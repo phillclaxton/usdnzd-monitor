@@ -261,6 +261,10 @@ class ConversionHistory:
     conversions: list[tuple[Conversion, position_math.ConversionImprovement]]
     baseline_rate: Decimal | None
     realised: RealisedTotal
+    #: What was converted and received in total, from
+    #: :func:`conversion_service.totals`. A property of the list, not of the
+    #: position — a history with no position saved still has totals.
+    totals: dict[str, Decimal | None]
 
 
 async def get_conversion_history(
@@ -284,6 +288,7 @@ async def get_conversion_history(
         conversions=paired,
         baseline_rate=baseline,
         realised=_realised(conversions, baseline),
+        totals=conversion_service.totals(conversions),
     )
 
 

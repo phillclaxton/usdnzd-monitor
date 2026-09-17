@@ -70,6 +70,10 @@ function history(overrides: Partial<ConversionHistory> = {}): ConversionHistory 
       total: '16732.5000',
       includes_estimates: true,
     },
+    total_source_amount: '80000.0000',
+    total_target_amount: '138830.0000',
+    blended_effective_rate: '1.73537500',
+    total_fees: '170.0000',
     conversions: [
       {
         id: 4,
@@ -287,6 +291,17 @@ describe('ConversionsPage', () => {
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveAttribute('aria-label', 'Edit conversion 1');
     expect(within(dialog).getByLabelText(/USD converted/)).toHaveValue('50000.0000');
+  });
+
+  it('shows its totals even when no position is saved', async () => {
+    // The totals belong to the conversion list, not to the position. Reading
+    // them off the state endpoint meant a history with conversions and no
+    // position saved rendered dashes — which is what the end-to-end run caught.
+    state = fxState({ position: null, metrics: null });
+    renderPage(<ConversionsPage />);
+    expect(await screen.findByText('USD 80,000.00')).toBeInTheDocument();
+    expect(screen.getByText('NZD 138,830.00')).toBeInTheDocument();
+    expect(screen.getByText('170.00')).toBeInTheDocument();
   });
 
   it('says a realised total is unknown rather than zero without a baseline', async () => {
