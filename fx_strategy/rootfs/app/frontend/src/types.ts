@@ -608,7 +608,7 @@ export interface NotificationLogEntry {
 
 export interface Conversion {
   id: number;
-  strategy_id: number;
+  strategy_id: number | null;
   tranche_id: number | null;
   source_amount: string;
   target_amount: string;
@@ -622,6 +622,8 @@ export interface Conversion {
   executed_at: string;
   record_source: string;
   simulated: boolean;
+  /** At least one amount was reconstructed rather than taken from a receipt. */
+  amounts_estimated: boolean;
   notes: string;
   receipt_filename: string | null;
   created_at: string;

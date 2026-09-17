@@ -10,6 +10,10 @@ The rules here protect the financial record:
   overwriting them silently.
 * A tranche is only marked completed by a recorded conversion — never by its
   target being reached.
+
+A conversion does not need a strategy. Passing ``strategy=None`` records the
+money that moved and nothing else: there is no ladder to allocate against, no
+remaining balance to check, and no tranche status to refresh.
 """
 
 from __future__ import annotations
@@ -91,6 +95,23 @@ async def find_duplicate(
     return (await session.execute(stmt)).scalars().first()
 
 
+def _currency_pair(
+    strategy: Strategy | None, currencies: tuple[str, str] | None
+) -> tuple[str, str]:
+    """The pair to name in the audit message.
+
+    The strategy is authoritative when there is one; otherwise the caller passes
+    the configured pair. Falling back to empty strings would put "Recorded 30000
+    converted to 52500" in the audit trail, which reads like a bug six months
+    later.
+    """
+    if strategy is not None:
+        return strategy.source_currency, strategy.target_currency
+    if currencies is not None:
+        return currencies
+    return "?", "?"
+
+
 def _allocations_for(payload: ConversionIn) -> list[TrancheAllocationIn]:
     if payload.allocations:
         return list(payload.allocations)
@@ -142,14 +163,19 @@ def refresh_tranche_status(strategy: Strategy, tranche: Tranche) -> None:
 
 async def create_conversion(
     session: AsyncSession,
-    strategy: Strategy,
+    strategy: Strategy | None,
     payload: ConversionIn,
     *,
+    currencies: tuple[str, str] | None = None,
     actor: str = "user",
 ) -> list[Conversion]:
     """Record a conversion, optionally split across several tranches.
 
     Returns one row per tranche allocation, or a single unassigned row.
+
+    Without a strategy there is nothing to allocate against, so the record is a
+    single unassigned row. ``currencies`` names the pair for the audit message,
+    which otherwise comes from the strategy.
     """
     duplicate = await find_duplicate(session, payload.provider, payload.provider_transaction_id)
     if duplicate is not None:
@@ -158,13 +184,24 @@ async def create_conversion(
             f"(conversion {duplicate.id}, {duplicate.executed_at.date().isoformat()})."
         )
 
-    remaining = strategies.remaining_amount(strategy)
+    allocations = _allocations_for(payload)
+    if strategy is None and allocations:
+        raise ConversionError(
+            "A tranche belongs to a strategy, so a conversion cannot be assigned to "
+            "one without naming the strategy."
+        )
+
     try:
         calc.validate_conversion_amounts(
             payload.source_amount,
             payload.target_amount,
-            remaining,
-            allow_exceeding_remaining=payload.correcting_earlier_record,
+            # With no strategy there is no recorded total to measure against, so
+            # only the amounts themselves can be checked. Inventing a remaining
+            # balance here would reject perfectly good history.
+            strategies.remaining_amount(strategy) if strategy is not None else ZERO,
+            allow_exceeding_remaining=(
+                payload.correcting_earlier_record if strategy is not None else True
+            ),
         )
     except MoneyError as exc:
         raise ConversionError(str(exc)) from exc
@@ -172,8 +209,9 @@ async def create_conversion(
     gross_rate = payload.gross_rate or derive_gross_rate(
         payload.source_amount, payload.target_amount
     )
-    allocations = _allocations_for(payload)
-    tranches = await _validate_tranches(session, strategy, allocations)
+    tranches = (
+        await _validate_tranches(session, strategy, allocations) if strategy is not None else {}
+    )
 
     created: list[Conversion] = []
     parts = allocations or [TrancheAllocationIn(tranche_id=0, source_amount=payload.source_amount)]
@@ -203,7 +241,7 @@ async def create_conversion(
         _ = net  # target_amount is already what arrived; kept for clarity
 
         conversion = Conversion(
-            strategy_id=strategy.id,
+            strategy_id=strategy.id if strategy is not None else None,
             tranche_id=part.tranche_id or None,
             source_amount=part.source_amount,
             target_amount=target_amount,
@@ -217,28 +255,33 @@ async def create_conversion(
             executed_at=payload.executed_at,
             record_source=str(RecordSource(payload.record_source)),
             simulated=payload.simulated,
+            amounts_estimated=payload.amounts_estimated,
             notes=payload.notes,
             receipt_filename=payload.receipt_filename,
         )
         session.add(conversion)
-        strategy.conversions.append(conversion)
+        if strategy is not None:
+            strategy.conversions.append(conversion)
         created.append(conversion)
 
     await session.flush()
 
-    for tranche in tranches.values():
-        refresh_tranche_status(strategy, tranche)
-    await session.flush()
+    if strategy is not None:
+        for tranche in tranches.values():
+            refresh_tranche_status(strategy, tranche)
+        await session.flush()
 
+    source_code, target_code = _currency_pair(strategy, currencies)
     await audit.record(
         session,
         event_type=AuditEventType.CREATED,
         entity_type="conversion",
         entity_id=created[0].id,
         message=(
-            f"Recorded {payload.source_amount} {strategy.source_currency} converted to "
-            f"{payload.target_amount} {strategy.target_currency} at {gross_rate}"
+            f"Recorded {payload.source_amount} {source_code} converted to "
+            f"{payload.target_amount} {target_code} at {gross_rate}"
             + (" (simulated)" if payload.simulated else "")
+            + (" (amounts estimated)" if payload.amounts_estimated else "")
         ),
         after={
             "source_amount": payload.source_amount,
@@ -248,6 +291,7 @@ async def create_conversion(
             "tranche_ids": [c.tranche_id for c in created],
             "provider_transaction_id": payload.provider_transaction_id,
             "correcting_earlier_record": payload.correcting_earlier_record,
+            "amounts_estimated": payload.amounts_estimated,
         },
         actor=actor,
     )
@@ -256,7 +300,7 @@ async def create_conversion(
 
 async def update_conversion(
     session: AsyncSession,
-    strategy: Strategy,
+    strategy: Strategy | None,
     conversion: Conversion,
     payload: ConversionIn,
     *,
@@ -283,6 +327,7 @@ async def update_conversion(
         "executed_at": conversion.executed_at,
         "tranche_id": conversion.tranche_id,
         "fee_total_target_equivalent": conversion.fee_total_target_equivalent,
+        "amounts_estimated": conversion.amounts_estimated,
         "notes": conversion.notes,
     }
     previous_tranche_id = conversion.tranche_id
@@ -305,13 +350,15 @@ async def update_conversion(
     conversion.tranche_id = payload.tranche_id
     conversion.notes = payload.notes
     conversion.simulated = payload.simulated
+    conversion.amounts_estimated = payload.amounts_estimated
     conversion.receipt_filename = payload.receipt_filename
     await session.flush()
 
-    for tranche in strategy.tranches:
-        if tranche.id in (previous_tranche_id, payload.tranche_id):
-            refresh_tranche_status(strategy, tranche)
-    await session.flush()
+    if strategy is not None:
+        for tranche in strategy.tranches:
+            if tranche.id in (previous_tranche_id, payload.tranche_id):
+                refresh_tranche_status(strategy, tranche)
+        await session.flush()
 
     await audit.record(
         session,
@@ -329,6 +376,7 @@ async def update_conversion(
             "gross_rate": conversion.gross_rate,
             "executed_at": conversion.executed_at,
             "tranche_id": conversion.tranche_id,
+            "amounts_estimated": conversion.amounts_estimated,
             "notes": conversion.notes,
         },
         actor=actor,
@@ -338,7 +386,7 @@ async def update_conversion(
 
 async def delete_conversion(
     session: AsyncSession,
-    strategy: Strategy,
+    strategy: Strategy | None,
     conversion: Conversion,
     *,
     reason: str = "",
@@ -355,21 +403,27 @@ async def delete_conversion(
         "provider": conversion.provider,
         "provider_transaction_id": conversion.provider_transaction_id,
         "tranche_id": conversion.tranche_id,
+        "amounts_estimated": conversion.amounts_estimated,
         "notes": conversion.notes,
         "record_source": conversion.record_source,
     }
     conversion_id = conversion.id
     tranche_id = conversion.tranche_id
 
-    if conversion in strategy.conversions:
+    # Removing it from the collection is what deletes the row under
+    # ``cascade="all, delete-orphan"``. With no strategy the collection is never
+    # touched and ``session.delete`` does the work directly — same outcome by a
+    # different route, which is why both paths are tested.
+    if strategy is not None and conversion in strategy.conversions:
         strategy.conversions.remove(conversion)
     await session.delete(conversion)
     await session.flush()
 
-    for tranche in strategy.tranches:
-        if tranche.id == tranche_id:
-            refresh_tranche_status(strategy, tranche)
-    await session.flush()
+    if strategy is not None:
+        for tranche in strategy.tranches:
+            if tranche.id == tranche_id:
+                refresh_tranche_status(strategy, tranche)
+        await session.flush()
 
     await audit.record(
         session,

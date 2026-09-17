@@ -28,7 +28,14 @@ router = APIRouter(prefix="/conversions", tags=["conversions"])
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 
-async def _strategy(session: SessionDep, strategy_id: int) -> Strategy:
+async def _optional_strategy(session: SessionDep, strategy_id: int | None) -> Strategy | None:
+    """The named strategy, or ``None`` when none was named.
+
+    Naming nothing is allowed; naming a strategy that does not exist is still a
+    404, so a typo does not quietly record an unattached conversion.
+    """
+    if strategy_id is None:
+        return None
     strategy = await strategies.get_strategy(session, strategy_id)
     if strategy is None:
         raise NotFoundError(f"Strategy {strategy_id} does not exist.")
@@ -77,17 +84,22 @@ async def list_conversions(
     summary="Record a conversion",
 )
 async def create_conversion(
-    payload: ConversionIn, session: SessionDep, actor: ActorDep
+    payload: ConversionIn, session: SessionDep, settings: SettingsDep, actor: ActorDep
 ) -> list[ConversionOut]:
     """Record a conversion that has already happened.
 
+    ``strategy_id`` is optional: a conversion is a fact about money that moved.
     Splitting across tranches produces one row per tranche, sharing the
-    transaction reference.
+    transaction reference, and does require a strategy.
     """
-    strategy = await _strategy(session, payload.strategy_id)
+    strategy = await _optional_strategy(session, payload.strategy_id)
     try:
         created = await conversion_service.create_conversion(
-            session, strategy, payload, actor=actor
+            session,
+            strategy,
+            payload,
+            currencies=(settings.general.source_currency, settings.general.target_currency),
+            actor=actor,
         )
     except DuplicateConversionError as exc:
         raise ConflictError(str(exc)) from exc
@@ -140,7 +152,7 @@ async def update_conversion(
 ) -> ConversionOut:
     """Correct a record. The previous values stay in the audit trail."""
     conversion = await _conversion(session, conversion_id)
-    strategy = await _strategy(session, conversion.strategy_id)
+    strategy = await _optional_strategy(session, conversion.strategy_id)
     try:
         updated = await conversion_service.update_conversion(
             session,
@@ -165,7 +177,7 @@ async def delete_conversion(
     reason: str = Query(default="", max_length=500),
 ) -> Message:
     conversion = await _conversion(session, conversion_id)
-    strategy = await _strategy(session, conversion.strategy_id)
+    strategy = await _optional_strategy(session, conversion.strategy_id)
     await conversion_service.delete_conversion(
         session, strategy, conversion, reason=reason, actor=actor
     )
@@ -181,13 +193,17 @@ async def import_conversions(
     session: SessionDep,
     settings: SettingsDep,
     actor: ActorDep,
-    strategy_id: int = Query(...),
+    strategy_id: int | None = Query(default=None),
     file: UploadFile = File(...),
     commit: bool = Query(default=False, description="Set true to write the rows"),
 ) -> ConversionImportPreview:
-    """Validate a CSV of past conversions, writing only when ``commit`` is set."""
-    _ = settings
-    strategy = await _strategy(session, strategy_id)
+    """Validate a CSV of past conversions, writing only when ``commit`` is set.
+
+    Without ``strategy_id`` the rows are imported unattached, and any
+    ``tranche_reference`` column is ignored: there is no ladder to resolve it
+    against.
+    """
+    strategy = await _optional_strategy(session, strategy_id)
 
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
@@ -207,7 +223,7 @@ async def import_conversions(
     ]
     duplicates = 0
     importable: list[ConversionIn] = []
-    tranche_ids = {tranche.id for tranche in strategy.tranches}
+    tranche_ids = {tranche.id for tranche in strategy.tranches} if strategy is not None else set()
 
     for index, row in enumerate(parsed.rows, start=2):
         transaction_id = row.get("provider_transaction_id")
@@ -227,7 +243,7 @@ async def import_conversions(
 
         tranche_reference = row.get("tranche_reference")
         tranche_id: int | None = None
-        if tranche_reference:
+        if tranche_reference and strategy is not None:
             try:
                 candidate = int(tranche_reference)
             except ValueError:
@@ -253,7 +269,7 @@ async def import_conversions(
 
         importable.append(
             ConversionIn(
-                strategy_id=strategy.id,
+                strategy_id=strategy.id if strategy is not None else None,
                 executed_at=row["executed_at"],
                 source_amount=row["source_amount"],
                 target_amount=row["target_amount"],
@@ -273,9 +289,12 @@ async def import_conversions(
 
     imported = 0
     if commit:
+        pair = (settings.general.source_currency, settings.general.target_currency)
         for payload in importable:
             try:
-                await conversion_service.create_conversion(session, strategy, payload, actor=actor)
+                await conversion_service.create_conversion(
+                    session, strategy, payload, currencies=pair, actor=actor
+                )
                 imported += 1
             except ConversionError as exc:
                 errors.append({"row": 0, "message": str(exc)})
