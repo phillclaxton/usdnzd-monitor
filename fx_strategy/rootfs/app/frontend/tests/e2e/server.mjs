@@ -7,7 +7,7 @@
  * of only failing on someone's real installation.
  */
 import { spawn } from 'node:child_process';
-import { createServer, request as httpRequest } from 'node:http';
+import { Agent, createServer, request as httpRequest } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -61,6 +61,17 @@ const backend = spawn(
   { cwd: backendRoot, env, stdio: 'inherit' },
 );
 
+/**
+ * A fresh connection per request, deliberately.
+ *
+ * Node's global agent has kept sockets alive since Node 19, and uvicorn closes
+ * an idle one after five seconds of its own, so a request arriving as the two
+ * timers meet can be written to a socket the backend is already closing. Not
+ * reusing sockets removes that race, and the extra handshake against a local
+ * port costs nothing at this scale.
+ */
+const upstreamAgent = new Agent({ keepAlive: false });
+
 /** Strip the ingress prefix and forward, exactly as the Supervisor does. */
 const proxy = createServer((clientRequest, clientResponse) => {
   const url = clientRequest.url ?? '/';
@@ -72,6 +83,7 @@ const proxy = createServer((clientRequest, clientResponse) => {
       port: BACKEND_PORT,
       method: clientRequest.method,
       path,
+      agent: upstreamAgent,
       headers: {
         ...clientRequest.headers,
         'x-ingress-path': INGRESS_PREFIX,
@@ -84,11 +96,49 @@ const proxy = createServer((clientRequest, clientResponse) => {
     },
   );
   upstream.on('error', (error) => {
+    // Said out loud, because a 502 reaches the test as a bare status code and
+    // the assertion it fails is usually nothing to do with the cause.
+    process.stderr.write(
+      `proxy error: ${error.code ?? error.message} on ${clientRequest.method} ${path}\n`,
+    );
     clientResponse.writeHead(502, { 'content-type': 'text/plain' });
     clientResponse.end(`proxy error: ${error.message}`);
   });
   clientRequest.pipe(upstream);
 });
+
+/**
+ * Wait for the backend before opening the port.
+ *
+ * Playwright treats the port being open as "the server is ready" and navigates
+ * the moment it is. The proxy can listen immediately; uvicorn cannot, because
+ * its lifespan opens the database and materialises the settings first. Opening
+ * the port first therefore lets the first navigation arrive before there is
+ * anything to forward it to, and it fails whichever assertion happens to be
+ * first rather than saying the backend was not up. Waiting here makes the open
+ * port mean what Playwright reads it as.
+ */
+async function backendIsUp() {
+  return new Promise((settle) => {
+    const probe = httpRequest(
+      { host: '127.0.0.1', port: BACKEND_PORT, path: '/api/v1/health', agent: upstreamAgent },
+      (response) => {
+        response.resume();
+        settle(true);
+      },
+    );
+    probe.on('error', () => settle(false));
+    probe.end();
+  });
+}
+
+const deadline = Date.now() + 60_000;
+while (!(await backendIsUp())) {
+  if (Date.now() > deadline) {
+    throw new Error('the backend did not answer /api/v1/health within 60 seconds');
+  }
+  await new Promise((wait) => setTimeout(wait, 100));
+}
 
 proxy.listen(PORT, '127.0.0.1', () => {
   process.stdout.write(`e2e proxy listening on ${PORT}, ingress prefix ${INGRESS_PREFIX}\n`);

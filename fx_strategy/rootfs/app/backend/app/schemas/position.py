@@ -203,9 +203,20 @@ class ConversionHistoryRow(Schema):
 
 
 class ConversionHistoryOut(Schema):
+    """The history, its totals, and what it gained.
+
+    The totals belong here rather than being read off ``GET /fx/state``: they
+    are a property of the conversion list, and someone with conversions and no
+    position saved still has totals worth showing.
+    """
+
     conversions: list[ConversionHistoryRow]
     baseline_rate: RateStr | None
     realised: RealisedSplit
+    total_source_amount: MoneyStr
+    total_target_amount: MoneyStr
+    blended_effective_rate: RateStr | None
+    total_fees: MoneyStr | None
 
 
 class RecordConversionIn(StrictSchema):

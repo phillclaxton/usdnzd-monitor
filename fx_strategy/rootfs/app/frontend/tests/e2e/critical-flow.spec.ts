@@ -159,7 +159,16 @@ test('the data survives a page reload and the API stays consistent', async ({
 });
 
 test('deep links work under the Ingress prefix', async ({ page }) => {
-  for (const path of ['chart', 'strategy', 'scenarios', 'conversions', 'settings', 'diagnostics']) {
+  const paths = [
+    'position',
+    'chart',
+    'strategy',
+    'scenarios',
+    'conversions',
+    'settings',
+    'diagnostics',
+  ];
+  for (const path of paths) {
     const response = await page.goto(`${INGRESS}/${path}`);
     expect(response?.status()).toBe(200);
     await expect(page.locator('base')).toHaveAttribute('href', `${INGRESS}/`);

@@ -606,3 +606,44 @@ async def test_a_patch_is_not_a_back_door_past_the_checks(
     position = (await client.get(f"{BASE}/state")).json()["position"]
     assert position["current_source_balance"] == "500000.0000"
     assert position["floating_loan_rate"] == "0.06000000"
+
+
+async def test_the_history_carries_its_own_totals(client: AsyncClient) -> None:
+    """They belong to the conversion list, not to the position.
+
+    Reading them off ``GET /fx/state`` meant a history with conversions and no
+    position saved reported nothing at all — which is a state anyone importing
+    a CSV before filling in the form would be in.
+    """
+    await client.post(f"{BASE}/state/import", params={"commit": True}, json=example_document())
+
+    history = (await client.get(f"{BASE}/conversions")).json()
+    assert history["total_source_amount"] == "125000.0000"
+    assert history["total_target_amount"] == "216492.5000"
+    # 100.00 USD at 1.7000 and 50.00 at 1.7500; the two rows with no recorded
+    # fee contribute nothing rather than a zero.
+    assert history["total_fees"] == "257.5000"
+    assert history["blended_effective_rate"] is not None
+
+
+async def test_the_totals_survive_having_no_position(client: AsyncClient) -> None:
+    """Conversions with no position saved still have totals worth showing.
+
+    Reading them off ``GET /fx/state`` made them null in exactly this state,
+    which is the coupling the end-to-end run caught.
+    """
+    await client.post(
+        "/api/v1/conversions",
+        json={
+            "executed_at": "2026-05-01T00:00:00Z",
+            "source_amount": "10000",
+            "target_amount": "17000",
+        },
+    )
+    assert (await client.get(f"{BASE}/state")).json()["position"] is None
+
+    history = (await client.get(f"{BASE}/conversions")).json()
+    assert history["total_source_amount"] == "10000.0000"
+    assert history["total_target_amount"] == "17000.0000"
+    # No baseline, so there is no improvement to report — but the totals stand.
+    assert history["realised"]["total"] is None
