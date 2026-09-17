@@ -4,6 +4,24 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-09-17
+
+### Fixed
+
+- **The rate data panel added in 1.4.0 pegged a CPU core.** It compared every
+  observation against every other one to find the outliers, which is quadratic:
+  at five-minute polling, opening the chart cost **23 seconds** of CPU for a
+  30-day range and **110 seconds** for a year — measured on a machine far
+  faster than a Home Assistant box, and repeated whenever the panel refetched.
+
+  The neighbours were always a contiguous slice of a time-ordered list, so the
+  scan was never needed. The same figures now take 0.14s and 0.33s. A test
+  reviews 12,000 samples and fails if the cost goes back to scanning the whole
+  series.
+- The same endpoint built a result object for every sample in the range — tens
+  of thousands for a year — and then returned one page of them. It now builds
+  only the rows it returns.
+
 ## [1.4.0] - 2026-09-17
 
 ### Added
