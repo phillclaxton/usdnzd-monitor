@@ -350,3 +350,67 @@ async def test_excluding_a_sample_that_does_not_exist_is_a_404(client: AsyncClie
 
 async def test_the_review_endpoint_rejects_an_unknown_range(client: AsyncClient) -> None:
     assert (await client.get("/api/v1/rates/samples?range=decade")).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Cost
+# ---------------------------------------------------------------------------
+
+
+def _series(count: int) -> list[RateSample]:
+    base = utcnow() - timedelta(minutes=5 * count)
+    rows = []
+    for index in range(count):
+        row = RateSample(
+            provider="wise",
+            source_currency="USD",
+            target_currency="NZD",
+            rate=Decimal("1.7200") + Decimal(index % 7) / Decimal(10000),
+            rate_numeric=1.72,
+            quote_type="mid_market",
+            retrieved_at=base + timedelta(minutes=5 * index),
+            is_stale=False,
+        )
+        row.id = index + 1
+        row.excluded_at = None
+        rows.append(row)
+    return rows
+
+
+def test_reviewing_a_long_history_stays_cheap() -> None:
+    """A guard on the shape of the work, not a micro-benchmark.
+
+    Comparing every sample against every other is quadratic. At five-minute
+    polling a month is ~8,600 samples and a year is capped at 20,000, so the
+    quadratic version took 23 seconds and 110 seconds of CPU for one request —
+    on a machine far faster than the one this runs on. The bound below is
+    generous enough not to flake on a loaded runner and still fails by a wide
+    margin if the neighbour window goes back to scanning the whole series.
+    """
+    import time
+
+    rows = _series(12_000)
+    started = time.perf_counter()
+    reviews = rate_service.review_samples(rows)
+    elapsed = time.perf_counter() - started
+
+    assert len(reviews) == 12_000
+    assert elapsed < 15, f"reviewing 12,000 samples took {elapsed:.1f}s"
+
+
+def test_every_sample_is_judged_against_its_neighbours_not_the_whole_series() -> None:
+    """A slow drift is not an outlier; a local jump is."""
+    rows = _series(200)
+    # A long, smooth climb: every point is far from the start and near its
+    # neighbours, so nothing should stand out.
+    for index, row in enumerate(rows):
+        row.rate = Decimal("1.7000") + Decimal(index) / Decimal(1000)
+
+    reviews = rate_service.review_samples(rows)
+    deviations = [r.deviation for r in reviews if r.deviation is not None]
+    assert deviations and max(deviations) < Decimal("0.02")
+
+    # One point put well off the line is caught.
+    rows[100].rate = Decimal("2.5000")
+    caught = rate_service.review_samples(rows)
+    assert next(r for r in caught if r.sample.id == 101).deviation > Decimal("0.02")

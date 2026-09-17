@@ -1074,23 +1074,27 @@ def review_samples(samples: Sequence[RateSample]) -> list[SampleReview]:
     The comparison set is the *usable* samples only. A run of bad points must
     not make each other look normal, and an excluded one is judged against what
     is left rather than against itself.
+
+    The neighbours are a contiguous slice of a time-ordered list, so this walks
+    each sample once and looks at a fixed number of points either side. Scanning
+    the whole list per sample instead is quadratic, which is unnoticeable over a
+    day and minutes of CPU over a year.
     """
     ordered = sorted(samples, key=lambda item: (item.retrieved_at, item.id))
     usable = [sample for sample in ordered if sample.usable]
-    usable_rate_at = {sample.id: index for index, sample in enumerate(usable)}
+    usable_position = {sample.id: index for index, sample in enumerate(usable)}
 
     reviews: list[SampleReview] = []
-    for position, sample in enumerate(ordered):
+    preceding_usable = 0
+    for sample in ordered:
         # Where this sample sits among the usable ones: its own index if it is
         # usable, otherwise how many usable samples precede it in time.
-        centre = usable_rate_at.get(sample.id)
-        if centre is None:
-            centre = sum(1 for other in ordered[:position] if other.usable)
-        window = [
-            other.rate
-            for index, other in enumerate(usable)
-            if other.id != sample.id and abs(index - centre) <= REVIEW_WINDOW
-        ]
+        centre = usable_position.get(sample.id, preceding_usable)
+        first = max(0, centre - REVIEW_WINDOW)
+        last = min(len(usable), centre + REVIEW_WINDOW + 1)
+        window = [other.rate for other in usable[first:last] if other.id != sample.id]
+        if sample.usable:
+            preceding_usable += 1
         if len(window) < 3:
             reviews.append(SampleReview(sample=sample, deviation=None))
             continue

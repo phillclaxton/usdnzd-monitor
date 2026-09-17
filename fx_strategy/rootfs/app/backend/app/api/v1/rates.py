@@ -370,34 +370,44 @@ async def list_samples(
     reviews = rate_service.review_samples(samples)
     threshold = settings.providers.implausible_move_threshold
 
-    rows: list[SampleOut] = []
-    for review in reviews:
-        sample = review.sample
-        suspicious = review.deviation is not None and review.deviation > threshold
-        rows.append(
-            SampleOut(
-                id=sample.id,
-                timestamp=sample.retrieved_at,
-                rate=sample.rate,
-                provider=sample.provider,
-                quote_type=sample.quote_type,
-                excluded=sample.excluded_at is not None,
-                excluded_reason=sample.excluded_reason,
-                deviation=review.deviation,
-                suspicious=suspicious,
-            )
-        )
+    def is_suspicious(review: rate_service.SampleReview) -> bool:
+        return review.deviation is not None and review.deviation > threshold
 
-    excluded_count = sum(1 for row in rows if row.excluded)
-    suspicious_count = sum(1 for row in rows if row.suspicious and not row.excluded)
-    total = len(rows)
+    total = len(reviews)
+    excluded_count = sum(1 for review in reviews if review.sample.excluded_at is not None)
+    suspicious_count = sum(
+        1 for review in reviews if is_suspicious(review) and review.sample.excluded_at is None
+    )
+
+    chosen = reviews
     if suspicious_only:
-        rows = [row for row in rows if row.suspicious or row.excluded]
+        chosen = [
+            review
+            for review in reviews
+            if is_suspicious(review) or review.sample.excluded_at is not None
+        ]
     # Newest first: a point you have just noticed on the chart is at the top.
-    rows.sort(key=lambda row: row.timestamp, reverse=True)
+    chosen = sorted(chosen, key=lambda review: review.sample.retrieved_at, reverse=True)[:limit]
+
+    # Built after the slice: a year of history is tens of thousands of rows and
+    # only a page of them is ever returned.
+    rows = [
+        SampleOut(
+            id=review.sample.id,
+            timestamp=review.sample.retrieved_at,
+            rate=review.sample.rate,
+            provider=review.sample.provider,
+            quote_type=review.sample.quote_type,
+            excluded=review.sample.excluded_at is not None,
+            excluded_reason=review.sample.excluded_reason,
+            deviation=review.deviation,
+            suspicious=is_suspicious(review),
+        )
+        for review in chosen
+    ]
 
     return SampleListOut(
-        samples=rows[:limit],
+        samples=rows,
         threshold=threshold,
         total=total,
         excluded_count=excluded_count,
