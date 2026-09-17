@@ -192,16 +192,14 @@ async def test_an_excluded_sample_leaves_every_figure(
     spike = await seed(session, "1.7750", minutes_ago=20)
     await seed(session, "1.7210", minutes_ago=10)
 
-    high, _low = (
-        await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(hours=1))
-    )[::-1]
-    assert high == Decimal("1.77500000")
+    before = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(hours=1))
+    assert before.high == Decimal("1.77500000")
 
     await rate_service.exclude_sample(session, spike, reason="never happened")
 
-    low, high = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(hours=1))
-    assert high == Decimal("1.72100000")
-    assert low == Decimal("1.72000000")
+    after = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(hours=1))
+    assert after.high == Decimal("1.72100000")
+    assert after.low == Decimal("1.72000000")
 
     points = await rate_service.history(
         session, "USD", "NZD", utcnow() - timedelta(hours=1), utcnow()
@@ -276,8 +274,8 @@ async def test_restoring_brings_the_sample_back(session: AsyncSession, settings:
 
     assert spike.excluded_at is None
     assert spike.excluded_reason is None
-    _low, high = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(hours=1))
-    assert high == Decimal("1.77500000")
+    window = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(hours=1))
+    assert window.high == Decimal("1.77500000")
 
 
 async def test_excluding_is_recorded_in_the_audit_trail(

@@ -298,7 +298,7 @@ async def _comparisons(
         if strategy.strategy_start_date
         else None
     )
-    high_6m, low_6m = await rate_service.extremes(
+    six_months = await rate_service.extremes(
         session, source, target, utcnow() - timedelta(days=182)
     )
 
@@ -318,8 +318,8 @@ async def _comparisons(
 
     return ComparisonOut(
         versus_start_rate=against(start_sample.rate if start_sample else None),
-        versus_six_month_high=against(high_6m),
-        versus_six_month_low=against(low_6m),
+        versus_six_month_high=against(six_months.high),
+        versus_six_month_low=against(six_months.low),
         versus_today=against(current_rate),
         versus_equal_schedule=against(equal_reference),
     )

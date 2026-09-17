@@ -353,12 +353,32 @@ async def seed_history(session: AsyncSession, rates: list[tuple[int, str]]) -> N
     await session.flush()
 
 
+async def test_the_high_is_the_high_all_the_way_to_the_dashboard(
+    session: AsyncSession, settings: Settings
+) -> None:
+    """The figure labelled "high" must be the largest rate, not the smallest.
+
+    `extremes()` used to return a bare pair, and two callers unpacked it the
+    wrong way round, so the dashboard and the Home Assistant sensors reported
+    every high as a low and every low as a high. Named fields make the mistake
+    impossible; this asserts the orientation survives the whole way out.
+    """
+    await seed_history(session, [(1, "1.7512"), (5, "1.8033"), (10, "1.6821")])
+
+    current = await rate_service.current_rate(session, settings)
+    assert current.high_24h == Decimal("1.80330000")
+    assert current.low_24h == Decimal("1.68210000")
+    assert current.high_6m == Decimal("1.80330000")
+    assert current.low_6m == Decimal("1.68210000")
+    assert current.high_24h > current.low_24h
+
+
 async def test_extremes_return_exact_decimals(session: AsyncSession, settings: Settings) -> None:
     await seed_history(session, [(1, "1.7512"), (5, "1.8033"), (10, "1.6821")])
-    low, high = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(days=1))
-    assert low == Decimal("1.68210000")
-    assert high == Decimal("1.80330000")
-    assert isinstance(low, Decimal)
+    window = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(days=1))
+    assert window.low == Decimal("1.68210000")
+    assert window.high == Decimal("1.80330000")
+    assert isinstance(window.low, Decimal)
 
 
 async def test_change_over_a_window(session: AsyncSession, settings: Settings) -> None:
@@ -396,8 +416,8 @@ async def test_stale_samples_are_excluded_from_extremes(
         )
     )
     await session.flush()
-    _low, high = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(days=1))
-    assert high == Decimal("1.75000000")
+    window = await rate_service.extremes(session, "USD", "NZD", utcnow() - timedelta(days=1))
+    assert window.high == Decimal("1.75000000")
 
 
 # ---------------------------------------------------------------------------

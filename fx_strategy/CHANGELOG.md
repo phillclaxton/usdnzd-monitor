@@ -4,6 +4,21 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-09-17
+
+### Fixed
+
+- **Every high was a low and every low was a high.** `extremes()` returns the
+  pair as `(low, high)`, and two of its three callers unpacked it the other way
+  round — so the dashboard's 24-hour and 6-month high and low, and the
+  `fx_strategy_six_month_high` / `_low` sensors, have been showing each as the
+  other. The reversal alert, which unpacked it correctly, was unaffected.
+- The pair is now a `RateExtremes` with named `low` and `high` fields rather
+  than a bare tuple. Two values of the same type read the same whichever way
+  round they are unpacked, which is how this survived unnoticed; with named
+  fields the type checker found every call site, and the mistake cannot be
+  repeated silently.
+
 ## [1.4.1] - 2026-09-17
 
 ### Fixed
