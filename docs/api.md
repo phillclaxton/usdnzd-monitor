@@ -58,28 +58,20 @@ plausibility guard on arrival.
 The API key is never returned. Responses carry `key_hint` — the last four
 characters — and nothing else.
 
-## Obligations
+## Retired: obligations
 
-Debts and commitments that may be funded by converting USD. Decision support
-only: there is no endpoint here that pays, converts or transfers anything, and
-`POST /obligations/pay` returns an explicit refusal.
+"Debts and conversion priorities" was removed. Mortgage and offset figures come
+from the FX position instead — `current_offset_shortfall_nzd` and
+`floating_loan_rate` on `/fx/state`, with the daily and monthly carrying cost
+derived from them.
+
+The data is kept. Every backup contains the `obligations` and
+`obligation_fundings` tables, and `GET /legacy-export` downloads those two on
+their own.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/obligations?nzd_available=` | Every obligation, analysed and ranked twice |
-| `POST` | `/obligations` | Add one |
-| `GET`/`PATCH`/`DELETE` | `/obligations/{id}` | Read, edit, remove |
-| `POST` | `/obligations/{id}/funding` | Record NZD applied to it |
-| `GET` | `/obligations/{id}/funding` | Funding history |
-| `POST` | `/obligations/{id}/complete` | Mark funded |
-| `POST` | `/obligations/{id}/archive` | Remove from the active book |
-| `GET` | `/obligations/portfolio?usd_on_hand=` | Totals, costs, the next thing to fund |
-| `GET` | `/obligations/allocations` | The three standard conversion plans |
-| `POST` | `/obligations/allocations` | A scenario at a given amount or hypothetical rate |
-
-Two figures are withheld rather than guessed: `total_usd_required` is `null` if
-any obligation could not be priced, and the "USD remaining after the critical
-obligations" figures appear only when `usd_on_hand` is supplied.
+| `GET` | `/legacy-export` | The retired obligations data as JSON, with a dated filename |
 
 ## Strategies
 

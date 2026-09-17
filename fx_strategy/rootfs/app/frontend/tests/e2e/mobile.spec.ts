@@ -37,45 +37,10 @@ test('every section is reachable on a phone without sideways scrolling', async (
   }
 });
 
-test('editing an obligation opens a dialog that is actually on screen', async ({ page, request }) => {
-  const api = (path: string) => `${INGRESS}/api/v1/${path}`;
-
-  await request.post(api('rates/manual'), { data: { rate: '1.7200' } });
-  await request.post(api('obligations'), {
-    data: {
-      name: 'Phone edit check',
-      total_nzd: '50000',
-      annual_rate: '0.06',
-      due_date: '2026-12-01',
-    },
-  });
-
-  await page.goto(`${INGRESS}/obligations`);
-
-  // Scoped to the row, and exact: Playwright matches an accessible name by
-  // substring, so a plain { name: 'Edit' } also matches the obligation whose
-  // own name contains "edit".
-  const row = page.locator('tbody tr', { hasText: 'Phone edit check' }).first();
-  await expect(row).toBeVisible();
-  await row.getByRole('button', { name: 'Edit', exact: true }).click();
-
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toHaveAttribute('aria-label', /^Edit /);
-
-  // The whole point: the form must be inside the viewport, not scrolled off
-  // above it. A dialog the user cannot see is the bug this replaced.
-  const box = await dialog.boundingBox();
-  const viewport = page.viewportSize();
-  expect(box).not.toBeNull();
-  expect(viewport).not.toBeNull();
-  expect(box!.y).toBeGreaterThanOrEqual(0);
-  expect(box!.x).toBeGreaterThanOrEqual(0);
-  expect(box!.y).toBeLessThan(viewport!.height);
-
-  // The first field is reachable without hunting for it.
-  await expect(dialog.getByLabel(/^Name/)).toBeVisible();
-
-  // And Escape closes it.
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-});
+/*
+ * There was a third check here: that an edit dialog opens fully on screen on a
+ * phone, rather than scrolled off above the viewport. It drove the obligations
+ * page, which no longer exists, and `Modal` currently has no other caller to
+ * point it at. The guarantee comes back against the conversion edit dialog when
+ * that is built; it is not dropped, only homeless.
+ */

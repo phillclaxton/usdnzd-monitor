@@ -27,9 +27,8 @@ It is not a trading platform, an investment adviser or a forecasting system.
   hysteresis and cooldowns so it does not spam you as the rate wobbles.
 - Records the conversions you actually performed and recalculates your blended
   effective rate.
-- Tracks the **debts and obligations** you plan to fund, comparing the daily cost
-  of carrying each against what a better rate would save, and telling you which
-  to fund first.
+- Tracks your **mortgage offset shortfall** and what waiting on it costs a day
+  at your floating rate.
 - Publishes sensors to Home Assistant via MQTT discovery, and still works
   without MQTT.
 - Runs entirely on your own hardware. Data leaves the machine only when talking
@@ -68,7 +67,6 @@ Assistant login and needs no port forwarding.
 | [Wise](docs/wise.md) | Read-only credentials, reconciliation, why nothing executes |
 | [Home Assistant entities](docs/mqtt.md) | MQTT discovery, every entity published, the REST fallback |
 | [Backup and restore](docs/backup-restore.md) | What a backup contains, what it deliberately omits |
-| [Debts and priorities](docs/obligations.md) | Obligations, break-even calculations, priority model |
 | [Strategy as JSON](docs/strategy-json.md) | Copying, pasting and editing a whole strategy as one document |
 | [CSV formats](docs/csv-formats.md) | Import and export column definitions |
 | [Troubleshooting](docs/troubleshooting.md) | Common problems and the diagnostics bundle |

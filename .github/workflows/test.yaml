@@ -61,7 +61,6 @@ jobs:
         run: |
           .venv/bin/python -m pytest app/tests \
             --cov=app.services.calculations \
-            --cov=app.services.obligation_engine \
             --cov=app.services.position_math \
             --cov=app.money \
             --cov-report=term-missing --cov-fail-under=95
