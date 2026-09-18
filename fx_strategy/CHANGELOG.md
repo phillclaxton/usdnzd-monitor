@@ -4,6 +4,123 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-09-18
+
+This app no longer plans your conversions. It records them, values what is
+left, and tells you when something has actually changed.
+
+The ladder made sense when this app was where the plan lived. It is not: Wise
+executes the conversions, and every change to a Wise auto-conversion meant
+editing a tranche here to match. So the app now answers the one question it is
+good at — **"what is my FX position, and has anything important changed?"** —
+and stops answering "what should I convert next?".
+
+**Nothing you entered has been deleted.** Every strategy, tranche, deadline
+requirement, obligation and conversion is still in the database and still in
+every backup. The screens that read them are gone; the rows are not.
+
+### Added
+
+- **A position.** What you still hold, the baseline rate you measure against,
+  your offset shortfall, your floating loan rate and your monthly spending.
+  Everything else is computed from those five figures on every read, so no
+  stored total can drift out of step with what it came from.
+- **A dashboard built on it**: what the balance is worth at the current rate,
+  unrealised improvement, realised improvement, total improvement, what has
+  been converted and what it cost in fees.
+- **The carrying cost.** What the unfunded part of your offset costs you for
+  every day the money is still in USD — charged on the shortfall, never on the
+  whole balance — with the monthly figure beside it.
+- **Movement alerts**, replacing the target alerts: an absolute move, an
+  intraday percentage move, a new 7/30/90-day high, a level crossed, a change
+  in what the position is worth, and mortgage milestones. Each message says
+  what happened, the rate, why it matters and what it is worth. **None says
+  what to convert.**
+  Volume is the thing an alert system gets wrong, so four rules stand between a
+  condition and your phone: it primes on first sight and says nothing; it has
+  to have cleared and re-armed; it has to have moved a further half cent since
+  it last spoke; and it still has to survive confirmation and the cooldown.
+- **A rate what-if** on the position page: what the balance would be worth at a
+  rate you type, and how that compares with your baseline. It replaces the
+  scenarios page.
+- **Conversion editing**, through a form that says on screen that correcting a
+  historical record does **not** change your current balance.
+- **Import and export of the whole position** as one JSON document, treated as
+  historical backfill: the balance is written exactly as given, because it is
+  already the balance after those conversions. An example with invented figures
+  is in `docs/examples/fx-state-example.json`.
+- **An estimate is never shown as a fact.** A conversion whose amounts were
+  reconstructed rather than read off a receipt is flagged, and every total it
+  contributes to is split into confirmed / estimated / total wherever it
+  appears — the dashboard, the history, the API and the export. Enter the real
+  receipt and the flag clears on its own.
+
+### Removed
+
+- **The conversion ladder**: strategies, tranches, deadline requirements,
+  allocation validation, the scenarios page, the strategy JSON editor, the
+  walk-away and deadline analyses, and the target state machine.
+- **Debts and conversion priorities**, retired in 1.4.x, with its data archived
+  into the backup first.
+- **API routes**: `/strategies/*`, `/tranches/*`, `/summary`,
+  `/strategy-templates`, and the strategy document routes. `POST /conversions`
+  no longer takes `strategy_id`, `tranche_id` or `allocations`, and returns one
+  object rather than a list. `POST /wise/reconcile` no longer takes
+  `strategy_id`.
+- **Eighteen Home Assistant entities.** A removed entity goes *unavailable* and
+  its history is orphaned, so if an automation or dashboard card names one of
+  these, it needs editing:
+
+  | Removed | |
+  | --- | --- |
+  | `sensor.fx_strategy_usd_initial` | `sensor.fx_strategy_usd_available` |
+  | `sensor.fx_strategy_percent_converted` | `sensor.fx_strategy_nzd_received_net` |
+  | `sensor.fx_strategy_blended_rate_gross` | `sensor.fx_strategy_blended_rate_effective` |
+  | `sensor.fx_strategy_next_target_rate` | `sensor.fx_strategy_next_target_usd` |
+  | `sensor.fx_strategy_next_target_upside_nzd` | `sensor.fx_strategy_one_cent_exposure_nzd` |
+  | `sensor.fx_strategy_convert_all_now_nzd` | `sensor.fx_strategy_estimated_wise_fee_nzd` |
+  | `sensor.fx_strategy_days_to_deadline` | `sensor.fx_strategy_strategy_status` |
+  | `binary_sensor.fx_strategy_target_reached` | `binary_sensor.fx_strategy_deadline_warning` |
+  | `button.fx_strategy_recalculate` | `number.fx_strategy_available_usd` |
+
+  Eight arrive in their place: `sensor.fx_strategy_nzd_value`,
+  `_realised_improvement_nzd`, `_unrealised_improvement_nzd`,
+  `_total_improvement_nzd`, `_offset_shortfall_nzd`,
+  `_daily_carrying_cost_nzd`, `_months_of_burn`, and
+  `binary_sensor.fx_strategy_position_saved`. Twenty-one are unchanged,
+  including every rate sensor and `sensor.fx_strategy_usd_remaining`, which now
+  reads as what is still held.
+
+  Thirty-nine entities before, twenty-nine after. Discovery is republished on
+  upgrade, so Home Assistant drops the retained configs for the ones that have
+  gone rather than leaving them as orphans.
+
+### Changed
+
+- **The setup wizard is four steps**, not eight: where the rate comes from,
+  what you hold, your mortgage, and notifications. Everything except the
+  balance can be left empty and filled in later.
+- **Recording a conversion reduces the balance** — that is what
+  `POST /fx/conversions` is for, and the only reason it is separate from
+  `POST /conversions`, which records history and changes nothing. Neither
+  touches your offset shortfall: not every conversion goes to the mortgage, and
+  assuming one did would quietly corrupt the carrying cost.
+- **Wise reconciliation takes its currency pair from your settings.** It used
+  to need an active strategy and refused without one.
+- The CSV importer accepts a `tranche_reference` column and ignores it, so a
+  file exported by an earlier version still imports.
+- A figure that cannot be calculated still says what is missing — "set a
+  baseline rate" — rather than showing `0.00`, on every screen and as an empty
+  Home Assistant state. That rule now covers the position figures too.
+
+### Upgrading
+
+The database migrates in place and nothing is dropped. Take a backup first
+anyway, then: open the app, fill in the position form on the dashboard, and
+record what has already been converted (or import a state document). Your
+conversion history is already there; it just needs a baseline rate before the
+improvement figures can mean anything.
+
 ## [1.4.2] - 2026-09-17
 
 ### Fixed
@@ -181,7 +298,7 @@ entered yet" can appear on an installation that has one. That is what made
   `POST /strategies/{id}/document/preview`, `POST /strategies/document` and
   `POST /strategies/document/preview`. A preview writes nothing; a rejected save
   returns the same located problems in `error.details`.
-- [Editing a strategy as JSON](../docs/strategy-json.md) documents the format,
+- "Editing a strategy as JSON" (removed in 2.0.0) documented the format,
   what it deliberately omits, and how tranche identity is preserved.
 
 ### Notes

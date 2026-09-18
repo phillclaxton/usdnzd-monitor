@@ -40,22 +40,43 @@ stop marks the entities unavailable.
 
 ## Entities
 
-25 sensors, 7 binary sensors, 5 buttons and 2 optional writable numbers. See
-[the full list](../fx_strategy/DOCS.md) or **Settings → Home Assistant →
-Preview entities**, which shows exactly what would be published without needing
-a broker.
+18 sensors, 6 binary sensors, 4 buttons and 1 optional writable number. See
+**Settings → Home Assistant → Preview entities**, which shows exactly what
+would be published without needing a broker.
 
 Notable behaviours:
 
 - A figure that cannot be calculated is published as an **empty state**, which
-  Home Assistant shows as `unknown`. It is never published as `0`. With no fee
-  model, the fee sensors are blank.
-- `binary_sensor.fx_strategy_target_reached` carries an attribute stating that a
-  reached target has converted nothing.
+  Home Assistant shows as `unknown`. It is never published as `0`. Before a
+  position is saved, or before a trusted rate has arrived, the figures derived
+  from them are blank rather than zero.
+- `sensor.fx_strategy_realised_improvement_nzd` publishes the **confirmed**
+  figure as its state. Anything reconstructed rather than read off a receipt is
+  in `estimated_additional` and `total_including_estimates`, so an automation
+  reading the state alone cannot treat an estimate as a fact.
+- `binary_sensor.fx_strategy_position_saved` is off until something has been
+  entered, which is also why the figures above it are unknown.
 - `binary_sensor.fx_strategy_attention_required` lists its reasons in an
-  attribute, so an automation can act on the specific cause.
-- No writable entity exposes a target rate. Changing a target goes through the
-  validating, audited API.
+  attribute, so an automation can act on the specific cause. A rate that has
+  merely *moved* is not one of them — that is what the alerts are for.
+- No writable entity exposes the balance. It is the figure every other one is
+  derived from, and changing it goes through the validating, audited API rather
+  than a number box that keeps no record of who moved it.
+
+### Entities removed in 2.0.0
+
+Eighteen entities went with the conversion ladder. A removed entity goes
+*unavailable* and its history is orphaned, so an automation or dashboard card
+naming one of these needs editing: `sensor.fx_strategy_` `usd_initial`,
+`usd_available`, `percent_converted`, `nzd_received_net`, `blended_rate_gross`,
+`blended_rate_effective`, `next_target_rate`, `next_target_usd`,
+`next_target_upside_nzd`, `one_cent_exposure_nzd`, `convert_all_now_nzd`,
+`estimated_wise_fee_nzd`, `days_to_deadline` and `strategy_status`;
+`binary_sensor.fx_strategy_target_reached` and `_deadline_warning`;
+`button.fx_strategy_recalculate`; and `number.fx_strategy_available_usd`.
+
+Discovery is republished on upgrade, which clears their retained configs so
+Home Assistant drops them rather than leaving orphans.
 
 ## Commands
 
@@ -75,5 +96,5 @@ Assistant drop the entities rather than leaving them as unavailable orphans.
 | --- | --- |
 | No entities appear | Diagnostics → MQTT connected. If not, check the broker credentials. |
 | Entities are unavailable | The app is stopped, or the broker connection dropped — the last-will fired. |
-| A sensor shows `unknown` | The figure is not calculable. Usually a missing fee model or no rate yet. |
+| A sensor shows `unknown` | The figure is not calculable. Usually no position saved, no baseline rate, or no trusted rate yet. |
 | Entities remain after uninstalling | The retained discovery messages were not cleared. Remove them from the broker, or use an MQTT client to publish an empty retained payload to the config topics. |

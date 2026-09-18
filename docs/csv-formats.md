@@ -19,7 +19,7 @@ timestamp,source_currency,target_currency,rate,provider
 | Column | Notes |
 | --- | --- |
 | `timestamp` | ISO-8601, epoch seconds or milliseconds, or a plain date. Converted to UTC. |
-| `source_currency` / `target_currency` | Must match your strategy's pair; other rows are skipped and counted. |
+| `source_currency` / `target_currency` | Must match your configured pair; other rows are skipped and counted. |
 | `rate` | Target per 1 source. Must be positive. |
 | `provider` | Free text, up to 32 characters. |
 
@@ -39,12 +39,12 @@ executed_at,source_amount,target_amount
 ```
 
 Optional: `gross_rate`, `effective_rate`, `fee_source`, `fee_target`,
-`provider`, `transaction_id`, `tranche`, `notes`.
+`provider`, `transaction_id`, `notes`.
 
 ```csv
-executed_at,source_amount,target_amount,transaction_id,tranche,notes
-2026-09-15T10:30:00Z,120000,207840,WISE-1,1,Auto conversion
-2026-09-20T09:00:00Z,160000,278400,WISE-2,2,
+executed_at,source_amount,target_amount,transaction_id,notes
+2026-09-15T10:30:00Z,120000,207840,WISE-1,Auto conversion
+2026-09-20T09:00:00Z,160000,278400,WISE-2,
 ```
 
 | Column | Notes |
@@ -54,16 +54,18 @@ executed_at,source_amount,target_amount,transaction_id,tranche,notes
 | `gross_rate` | Optional. Derived from the amounts if omitted. |
 | `fee_source` / `fee_target` | Fee on each side. Omit both and the fee is recorded as unknown — not as zero. |
 | `transaction_id` | Strongly recommended: it is what prevents double-counting. |
-| `tranche` | A tranche ID or a sequence number. Unresolvable values import the row unassigned, with a warning. |
+| `tranche_reference` | Accepted and ignored. Files exported by versions before 2.0.0 carry one, and refusing them over a column that no longer means anything would be a poor trade. |
 
 Import: **Conversions → Import from CSV**, or
-`POST /api/v1/conversions/import?strategy_id=…`.
+`POST /api/v1/conversions/import`.
 
 A row whose `transaction_id` already exists is **skipped and counted as a
 duplicate**, not imported again — so re-running an import is safe.
 
-Imported rows are marked `record_source: csv_import` and are allowed to exceed
-the current remaining balance, because history may pre-date it.
+Imported rows are marked `record_source: csv_import`, and they record **history**:
+they do not reduce your held balance, because a CSV of past conversions is
+usually a backfill of money that already moved. If the balance is then wrong,
+restate it on the position page.
 
 ## Exports
 
@@ -84,4 +86,4 @@ Both CSV exports round-trip through their own importer, and a test asserts it.
 | `Rate must be positive` | A zero or negative rate. |
 | `… is not a supported currency code` | Outside the allow-list. |
 | `… is already recorded and was skipped` | Duplicate transaction ID. Working as intended. |
-| `… rows are for a different currency pair` | The file mixes pairs; only your strategy's pair is imported. |
+| `… rows are for a different currency pair` | The file mixes pairs; only your configured pair is imported. |

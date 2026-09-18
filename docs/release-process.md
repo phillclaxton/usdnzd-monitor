@@ -2,8 +2,10 @@
 
 ## Versioning
 
-Semantic versioning. The version appears in five places, and CI fails the
-publish if they disagree with the tag:
+Semantic versioning. The version appears in five places. `scripts/check_versions.py`
+compares all five on every CI run, and the publish workflow runs it again
+against the tag, so a field left behind fails the release rather than reaching
+an installation:
 
 | File | Field |
 | --- | --- |
@@ -16,7 +18,8 @@ publish if they disagree with the tag:
 ## Steps
 
 1. Confirm `main` is green: backend tests, frontend tests, e2e, multi-arch build.
-2. Bump the five version fields.
+2. Bump the five version fields. `python3 scripts/check_versions.py` prints all
+   five and fails if any disagree.
 3. Write the `fx_strategy/CHANGELOG.md` entry. Say what changed for a *user*,
    and note anything that changes a displayed figure.
 4. Verify the migration chain applies cleanly from an older database, not only
@@ -31,8 +34,9 @@ The specification's own bar, restated as a checklist:
 
 - [ ] Migrations tested on an upgrade, not just a clean install.
 - [ ] A backup restored into a fresh installation and the figures verified.
-- [ ] Target alerts exercised under a fluctuating rate, including a dip past the
-      hysteresis and a re-cross.
+- [ ] Movement alerts exercised under a fluctuating rate: a first sight that
+      says nothing, a dip past the hysteresis and a re-cross, and a second move
+      too small to be worth repeating.
 - [ ] Ingress verified on desktop and on a phone.
 - [ ] No secret in any log, diagnostics bundle or backup.
 - [ ] Coverage bars met: 85% overall, 95% on the financial modules.

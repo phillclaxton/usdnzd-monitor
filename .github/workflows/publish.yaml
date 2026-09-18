@@ -25,17 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the manifest version matches the tag
+      - name: Check every version field matches the tag
         id: manifest
+        # All five, not just config.yaml: four of them could drift and the first
+        # sign of it would be an installation reporting a version it is not.
         run: |
-          version=$(python3 -c "import yaml;print(yaml.safe_load(open('fx_strategy/config.yaml'))['version'])")
           expected="${{ github.event.inputs.version || github.event.release.tag_name }}"
-          expected="${expected#v}"
-          if [ "${version}" != "${expected}" ]; then
-            echo "config.yaml says ${version} but the release is ${expected}" >&2
-            exit 1
-          fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          python3 scripts/check_versions.py "${expected}"
+          echo "version=${expected#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

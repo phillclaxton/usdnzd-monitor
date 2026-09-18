@@ -11,7 +11,7 @@ them.
 
 | Path | Contents |
 | --- | --- |
-| `fx_strategy.db` | Strategies, tranches, conversions, rates, audit trail |
+| `fx_strategy.db` | The position, conversions, rates, alert state, audit trail — and the retired strategies, tranches and obligations, which are kept |
 | `secrets.json` | API credentials, encrypted, mode 0600 |
 | `secret.key` | The encryption key |
 

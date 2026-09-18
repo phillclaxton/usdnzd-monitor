@@ -16,9 +16,10 @@ Home Assistant
 │      │                                                   │
 │      ├── services/         business rules                │
 │      │     calculations.py     pure Decimal maths        │
-│      │     strategy_service    persistence               │
-│      │     summary_service     dashboard payload         │
-│      │     alert_service       target state machine      │
+│      │     position_math       pure position arithmetic  │
+│      │     position_service    the position, and /fx     │
+│      │     fx_alerts           the movement alerts       │
+│      │     alert_common        the confirmation rule     │
 │      │     notifications       delivery + suppression    │
 │      │     monitor             post-refresh pipeline     │
 │      │     conversion_service  the financial record      │

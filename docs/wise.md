@@ -68,12 +68,12 @@ Wise's scheduled conversions are created **in Wise**, not through this API.
 
 The workflow is:
 
-1. Define your ladder here.
-2. The app shows the instructions: amount and target rate per tranche.
-3. You create the matching Auto Conversions in Wise.
-4. The app watches the rate and tells you when a target is reached.
-5. Wise performs the conversion.
-6. You record it here, or reconcile from the API.
+1. You create the Auto Conversions in Wise, at whatever rates you have decided
+   on. This app has no opinion about them and never has.
+2. Wise performs a conversion.
+3. You record it here, or reconcile from the API.
+4. The app values what is left, says what the conversion gained against your
+   baseline, and tells you when the rate moves enough to be worth hearing.
 
 ## Reconciliation
 
@@ -81,7 +81,12 @@ The workflow is:
 is recorded here. It defaults to a preview.
 
 Matching is on the Wise reference, so running it twice imports nothing twice.
-Conversions for a different currency pair are skipped and counted separately.
+The pair comes from your settings; conversions in any other pair are skipped and
+counted separately.
+
+Reconciliation records **history**, so it does not reduce your held balance. If
+a reconciled conversion has not already been taken off the balance, restate the
+balance on the position page.
 
 ## Troubleshooting
 
