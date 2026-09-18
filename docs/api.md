@@ -118,8 +118,9 @@ real `0.00`.
 
 ## Alert settings
 
-`fx_alerts` is a section of the settings document, so it is read and written
-through `GET`/`PUT /settings` like any other: the absolute and intraday
+**Settings → FX alerts** is the screen for these. `fx_alerts` is also a section
+of the settings document, so it is read and written through `GET`/`PUT /settings`
+like any other, and a `PUT` replaces the whole section rather than merging it: the absolute and intraday
 thresholds, which period highs to report, the watch levels, round-number breaks,
 the value and mortgage thresholds, the new-high cooldown, and the minimum change
 since the last alert.

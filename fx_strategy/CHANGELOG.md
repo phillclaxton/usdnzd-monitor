@@ -4,6 +4,48 @@ All notable changes to this app are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-09-18
+
+### Added
+
+- **Settings → FX alerts.** Every alert threshold now has a screen. 2.0.0 shipped
+  the settings section and the documentation telling you where to find it, but
+  not the panel — the only way to change any of it was `PUT /api/v1/settings`.
+  That was a documentation bug on my part, and this is the fix.
+
+  The panel groups them the way they are decided: the rate moving (absolute and
+  intraday), new highs and how long one stays quiet, levels and round numbers,
+  what the position is worth, and your mortgage thresholds. The one most worth
+  knowing about is at the top — **"say nothing again until the rate has moved"**,
+  which is what stops a rate oscillating around a level talking to you all day.
+
+- The panel states what the gates are, because they are not obvious from the
+  fields: a condition says nothing the first time it is evaluated, then has to
+  clear and re-arm, move the minimum change, and survive confirmation and the
+  cooldown.
+
+### Changed
+
+- The **Notifications** card now says it is about delivery, and that FX alerts
+  decides whether there is anything to deliver. Its quiet-hours note no longer
+  offers "missed deadline" as an example of a critical alert; a failing rate
+  provider is the only one left.
+- Text fields in the alerts panel save when you leave them rather than on every
+  keystroke. The settings document lives on the server, so saving per character
+  would be one request per character.
+
+### Removed
+
+- Four notification settings that nothing has read since 2.0.0 took the
+  conversion ladder: `near_threshold`, `repeat_interval_minutes`,
+  `reversal_threshold` and `deadline_warning_days`. One of them —
+  `near_threshold`, "alert when within this distance of a target" — was still on
+  screen in Settings, offering a knob that did nothing.
+
+  A settings row that still carries them is fine: unknown keys have always been
+  ignored rather than rejected, deliberately, so that a downgrade cannot wedge
+  the app.
+
 ## [2.0.0] - 2026-09-18
 
 This app no longer plans your conversions. It records them, values what is

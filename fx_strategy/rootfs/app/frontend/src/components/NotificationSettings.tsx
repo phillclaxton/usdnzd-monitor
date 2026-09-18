@@ -64,7 +64,7 @@ export default function NotificationSettingsPanel({
     <>
       <Card
         title="Notifications"
-        subtitle="Notifications are sent through Home Assistant's own notify services, so they reach whatever you already use."
+        subtitle="How alerts are delivered. What earns one is in FX alerts above; both have to agree before anything reaches a phone."
       >
         {status.data && !status.data.available && (
           <Banner tone="warning">
@@ -109,22 +109,8 @@ export default function NotificationSettingsPanel({
         </Field>
 
         <Field
-          label="Alert when within this distance of a target"
-          hint="the approaching alert threshold"
-          htmlFor="near"
-        >
-          <input
-            id="near"
-            type="text"
-            inputMode="decimal"
-            value={notifications.near_threshold}
-            onChange={(event) => patch({ near_threshold: event.target.value })}
-          />
-        </Field>
-
-        <Field
           label="Reset hysteresis"
-          hint="how far the rate must fall below a target before it can alert again"
+          hint="how far the rate must fall back through a level before it can speak again"
           htmlFor="hysteresis"
         >
           <input
@@ -138,7 +124,7 @@ export default function NotificationSettingsPanel({
 
         <Field
           label="Confirmation samples"
-          hint="consecutive qualifying samples before a target is confirmed"
+          hint="consecutive qualifying samples before a condition is confirmed"
           htmlFor="samples"
         >
           <input
@@ -214,7 +200,7 @@ export default function NotificationSettingsPanel({
               }
             />
             <label htmlFor="quiet-critical">
-              Still send critical alerts (missed deadline, provider down)
+              Still send critical alerts (a rate provider failing)
             </label>
           </div>
         </fieldset>
