@@ -20,7 +20,11 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: false,
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  // No retries, even in CI. Both specs are narratives over one database, so a
+  // second attempt starts from what the first one wrote and fails on different
+  // assertions than the one that actually broke — which is worse than useless
+  // when reading a failed run.
+  retries: 0,
   reporter: process.env.CI ? [['html', { open: 'never' }], ['list']] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,

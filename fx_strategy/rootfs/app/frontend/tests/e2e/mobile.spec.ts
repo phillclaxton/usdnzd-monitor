@@ -26,15 +26,7 @@ test('the dashboard is usable on a phone', async ({ page }) => {
 });
 
 test('every section is reachable on a phone without sideways scrolling', async ({ page }) => {
-  const paths = [
-    'position',
-    'chart',
-    'strategy',
-    'scenarios',
-    'conversions',
-    'settings',
-    'diagnostics',
-  ];
+  const paths = ['position', 'chart', 'conversions', 'settings', 'diagnostics'];
   for (const path of paths) {
     const response = await page.goto(`${INGRESS}/${path}`);
     expect(response?.status()).toBe(200);

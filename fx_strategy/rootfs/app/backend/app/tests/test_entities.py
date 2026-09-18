@@ -25,53 +25,43 @@ from app.home_assistant.mqtt import (
     set_publisher,
     state_topic,
 )
+from app.schemas.position import PositionIn
 from app.schemas.settings import Settings
-from app.schemas.strategy import StrategyIn, TrancheIn
+from app.services import position_service, rate_service, settings_service
 from app.services import publisher as publisher_service
-from app.services import rate_service, settings_service
-from app.services import strategy_service as strategies
 
-#: The entity IDs the product specification lists.
+#: Every entity the app publishes. Someone's automations depend on these names,
+#: so the set is pinned here and any change to it has to be deliberate.
 EXPECTED_ENTITY_IDS = {
     "sensor.fx_strategy_usd_nzd_rate",
     "sensor.fx_strategy_rate_age",
     "sensor.fx_strategy_rate_provider",
     "sensor.fx_strategy_rate_zone",
-    "sensor.fx_strategy_usd_initial",
-    "sensor.fx_strategy_usd_available",
-    "sensor.fx_strategy_usd_converted",
-    "sensor.fx_strategy_usd_remaining",
-    "sensor.fx_strategy_percent_converted",
-    "sensor.fx_strategy_nzd_received_gross",
-    "sensor.fx_strategy_nzd_received_net",
-    "sensor.fx_strategy_total_fees_nzd",
-    "sensor.fx_strategy_blended_rate_gross",
-    "sensor.fx_strategy_blended_rate_effective",
-    "sensor.fx_strategy_next_target_rate",
-    "sensor.fx_strategy_next_target_usd",
-    "sensor.fx_strategy_next_target_upside_nzd",
-    "sensor.fx_strategy_one_cent_exposure_nzd",
-    "sensor.fx_strategy_convert_all_now_nzd",
-    "sensor.fx_strategy_estimated_wise_fee_nzd",
-    "sensor.fx_strategy_days_to_deadline",
     "sensor.fx_strategy_six_month_high",
     "sensor.fx_strategy_six_month_low",
-    "sensor.fx_strategy_strategy_status",
+    "sensor.fx_strategy_usd_remaining",
+    "sensor.fx_strategy_nzd_value",
+    "sensor.fx_strategy_usd_converted",
+    "sensor.fx_strategy_nzd_received_gross",
+    "sensor.fx_strategy_total_fees_nzd",
+    "sensor.fx_strategy_realised_improvement_nzd",
+    "sensor.fx_strategy_unrealised_improvement_nzd",
+    "sensor.fx_strategy_total_improvement_nzd",
+    "sensor.fx_strategy_offset_shortfall_nzd",
+    "sensor.fx_strategy_daily_carrying_cost_nzd",
+    "sensor.fx_strategy_months_of_burn",
     "sensor.fx_strategy_provider_status",
     "binary_sensor.fx_strategy_rate_stale",
-    "binary_sensor.fx_strategy_target_reached",
-    "binary_sensor.fx_strategy_deadline_warning",
+    "binary_sensor.fx_strategy_position_saved",
     "binary_sensor.fx_strategy_provider_error",
     "binary_sensor.fx_strategy_wise_connected",
     "binary_sensor.fx_strategy_mqtt_connected",
     "binary_sensor.fx_strategy_attention_required",
     "button.fx_strategy_refresh_rate",
     "button.fx_strategy_test_notification",
-    "button.fx_strategy_recalculate",
     "button.fx_strategy_export_backup",
     "button.fx_strategy_reconcile_wise",
     "number.fx_strategy_manual_rate",
-    "number.fx_strategy_available_usd",
 }
 
 
@@ -144,26 +134,22 @@ async def settings(session: AsyncSession) -> Settings:
 
 
 @pytest.fixture
-async def strategy(session: AsyncSession) -> Any:
-    created = await strategies.create_strategy(
+async def position(session: AsyncSession) -> Any:
+    """A saved position and a rate, which is what the entities describe.
+
+    800,000 USD at a 1.7000 baseline, with a 36,500 offset shortfall at 6%: the
+    carrying cost is then exactly 6.00 a day, so a wrong answer is obvious.
+    """
+    created = await position_service.replace_state(
         session,
-        StrategyIn(
-            name="Entities",
-            initial_source_amount=Decimal("800000"),
-            funds_available_amount=Decimal("800000"),
-            final_deadline=None,
-            walk_away_rate=Decimal("1.7800"),
-            tranches=[
-                TrancheIn(
-                    sequence=1,
-                    allocation_type="percentage",
-                    allocation_value=Decimal("100"),
-                    target_rate=Decimal("1.7600"),
-                )
-            ],
+        PositionIn(
+            current_source_balance=Decimal("800000"),
+            baseline_rate=Decimal("1.7000"),
+            floating_loan_rate=Decimal("0.0600"),
+            current_offset_shortfall_nzd=Decimal("36500"),
+            monthly_nzd_burn=Decimal("4000"),
         ),
     )
-    await strategies.activate(session, created)
     await rate_service.record_manual_rate(
         session,
         source_currency="USD",
@@ -182,7 +168,7 @@ async def strategy(session: AsyncSession) -> Any:
 
 
 async def test_every_specified_entity_is_published(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     context = await publisher_service.build_context(session, settings)
     definitions = all_definitions(context, settings)
@@ -192,7 +178,7 @@ async def test_every_specified_entity_is_published(
 
 
 async def test_writable_controls_can_be_switched_off(
-    session: AsyncSession, settings: Settings, strategy: Any
+    session: AsyncSession, settings: Settings, position: Any
 ) -> None:
     settings.home_assistant.expose_writable_controls = False
     context = await publisher_service.build_context(session, settings)
@@ -200,17 +186,25 @@ async def test_writable_controls_can_be_switched_off(
     assert "number" not in components
 
 
-async def test_no_writable_entity_exposes_a_target_rate(
-    session: AsyncSession, settings: Settings, strategy: Any
+async def test_no_writable_entity_exposes_the_balance(
+    session: AsyncSession, settings: Settings, position: Any
 ) -> None:
-    """Targets must change only through the validating, audited API."""
+    """The balance changes only through the validating, audited API.
+
+    It is the figure every other one is derived from, and a number box carries
+    no record of who moved it or why.
+    """
     context = await publisher_service.build_context(session, settings)
     writable = [
         definition
         for definition in all_definitions(context, settings)
         if definition.component in ("number", "select")
     ]
-    assert all("target" not in definition.object_id for definition in writable)
+    assert all(
+        keyword not in definition.object_id
+        for definition in writable
+        for keyword in ("balance", "remaining", "available", "shortfall")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +213,7 @@ async def test_no_writable_entity_exposes_a_target_rate(
 
 
 async def test_state_values_match_the_dashboard(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     result = await publisher_service.publish(session, settings, publisher=mqtt)
     assert result.transport == "mqtt"
@@ -227,53 +221,32 @@ async def test_state_values_match_the_dashboard(
 
     assert mqtt.topic_payload("fx_strategy_usd_nzd_rate/state") == "1.75500000"
     assert mqtt.topic_payload("fx_strategy_usd_remaining/state") == "800000.00"
-    assert mqtt.topic_payload("fx_strategy_one_cent_exposure_nzd/state") == "8000.00"
-    assert mqtt.topic_payload("fx_strategy_next_target_rate/state") == "1.76000000"
-    assert mqtt.topic_payload("fx_strategy_strategy_status/state") == "active"
+    # 800,000 at 1.7550, and 0.0550 above a 1.7000 baseline on the same amount.
+    assert mqtt.topic_payload("fx_strategy_nzd_value/state") == "1404000.00"
+    assert mqtt.topic_payload("fx_strategy_unrealised_improvement_nzd/state") == "44000.00"
+    # 36,500 at 6% is 2,190 a year, which is 6.00 a day exactly.
+    assert mqtt.topic_payload("fx_strategy_daily_carrying_cost_nzd/state") == "6.00"
 
 
 async def test_an_uncalculable_figure_is_blank_not_zero(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     await publisher_service.publish(session, settings, publisher=mqtt)
-    # No fee model is configured, so the fee is unknown rather than zero.
-    assert mqtt.topic_payload("fx_strategy_estimated_wise_fee_nzd/state") == ""
+    # Nothing has been converted, so no fee was recorded — which is not a fee
+    # of zero, and a sensor reading 0.00 would say it was.
     assert mqtt.topic_payload("fx_strategy_total_fees_nzd/state") == ""
-    assert mqtt.topic_payload("fx_strategy_blended_rate_effective/state") == ""
 
 
 async def test_binary_sensors_use_on_and_off(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     await publisher_service.publish(session, settings, publisher=mqtt)
     assert mqtt.topic_payload("fx_strategy_rate_stale/state") == "OFF"
-    assert mqtt.topic_payload("fx_strategy_target_reached/state") == "OFF"
-
-
-async def test_target_reached_turns_on_and_says_nothing_was_converted(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
-) -> None:
-    await rate_service.record_manual_rate(
-        session, source_currency="USD", target_currency="NZD", rate=Decimal("1.7700")
-    )
-    await session.flush()
-
-    context = await publisher_service.build_context(session, settings)
-    definitions = all_definitions(context, settings)
-    reached = next(
-        definition
-        for definition in definitions
-        if definition.object_id == "fx_strategy_target_reached"
-    )
-    assert state_payload(reached, context) == "ON"
-    assert reached.attributes is not None
-    attributes = reached.attributes(context)
-    assert "has not converted anything" in attributes["note"]
-    assert attributes["reached_tranches"] == [1]
+    assert mqtt.topic_payload("fx_strategy_position_saved/state") == "ON"
 
 
 async def test_the_rate_sensor_carries_the_specified_attributes(
-    session: AsyncSession, settings: Settings, strategy: Any
+    session: AsyncSession, settings: Settings, position: Any
 ) -> None:
     context = await publisher_service.build_context(session, settings)
     definition = next(
@@ -292,39 +265,21 @@ async def test_the_rate_sensor_carries_the_specified_attributes(
         "low_24h",
         "high_6m",
         "low_6m",
-        "next_target",
-        "distance_to_target",
+        "baseline_rate",
     ):
         assert key in attributes
-    assert attributes["next_target"] == "1.76000000"
-    assert attributes["distance_to_target"] == "0.00500000"
-
-
-async def test_the_strategy_sensor_carries_the_specified_attributes(
-    session: AsyncSession, settings: Settings, strategy: Any
-) -> None:
-    context = await publisher_service.build_context(session, settings)
-    definition = next(
-        item
-        for item in all_definitions(context, settings)
-        if item.object_id == "fx_strategy_strategy_status"
-    )
-    assert definition.attributes is not None
-    attributes = definition.attributes(context)
-    assert attributes["strategy_name"] == "Entities"
-    assert attributes["tranche_count"] == 1
-    assert attributes["completed_tranches"] == 0
-    assert attributes["remaining_tranches"] == 1
-    assert attributes["walk_away_rate"] == "1.78000000"
+    assert attributes["baseline_rate"] == "1.70000000"
 
 
 async def test_attention_required_explains_itself(
-    session: AsyncSession, settings: Settings, strategy: Any
+    session: AsyncSession, settings: Settings
 ) -> None:
-    await rate_service.record_manual_rate(
-        session, source_currency="USD", target_currency="NZD", rate=Decimal("1.7700")
-    )
-    await session.flush()
+    """A fresh install, with nothing entered and no rate.
+
+    Deliberately without the position fixture: what needs a person is a rate the
+    app cannot trust or a position it does not have. A rate that merely *moved*
+    is not on the list — that is what the alerts are for.
+    """
     context = await publisher_service.build_context(session, settings)
     definition = next(
         item
@@ -334,7 +289,19 @@ async def test_attention_required_explains_itself(
     assert state_payload(definition, context) == "ON"
     assert definition.attributes is not None
     reasons = definition.attributes(context)["reasons"]
-    assert any("Nothing has been converted" in reason for reason in reasons)
+    assert any("No position has been entered" in reason for reason in reasons)
+
+
+async def test_nothing_needs_attention_once_a_position_and_a_rate_exist(
+    session: AsyncSession, settings: Settings, position: Any
+) -> None:
+    context = await publisher_service.build_context(session, settings)
+    definition = next(
+        item
+        for item in all_definitions(context, settings)
+        if item.object_id == "fx_strategy_attention_required"
+    )
+    assert state_payload(definition, context) == "OFF"
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +310,7 @@ async def test_attention_required_explains_itself(
 
 
 async def test_discovery_payloads_are_well_formed(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     await publisher_service.publish(session, settings, publisher=mqtt, force_discovery=True)
     configs = [
@@ -366,7 +333,7 @@ async def test_discovery_payloads_are_well_formed(
 
 
 async def test_buttons_declare_a_command_topic_not_a_state_topic(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     await publisher_service.publish(session, settings, publisher=mqtt, force_discovery=True)
     payload = json.loads(
@@ -378,7 +345,7 @@ async def test_buttons_declare_a_command_topic_not_a_state_topic(
 
 
 async def test_removing_entities_clears_the_retained_configs(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     context = await publisher_service.build_context(session, settings)
     definitions = all_definitions(context, settings)
@@ -395,7 +362,7 @@ async def test_removing_entities_clears_the_retained_configs(
 
 
 async def test_without_a_broker_or_token_nothing_is_published_but_the_app_works(
-    session: AsyncSession, settings: Settings, strategy: Any
+    session: AsyncSession, settings: Settings, position: Any
 ) -> None:
     result = await publisher_service.publish(session, settings)
     assert result.transport == "none"
@@ -403,7 +370,7 @@ async def test_without_a_broker_or_token_nothing_is_published_but_the_app_works(
 
 
 async def test_entity_publication_can_be_switched_off(
-    session: AsyncSession, settings: Settings, strategy: Any, mqtt: FakeMqtt
+    session: AsyncSession, settings: Settings, position: Any, mqtt: FakeMqtt
 ) -> None:
     settings.home_assistant.publish_entities = False
     result = await publisher_service.publish(session, settings, publisher=mqtt)
@@ -426,7 +393,7 @@ async def test_the_entity_preview_endpoint_works_without_a_broker(
 
 
 async def test_a_manual_rate_command_is_validated_like_the_api(
-    settings: Settings, strategy: Any
+    settings: Settings, position: Any
 ) -> None:
     from app.database import get_sessionmaker
 
@@ -438,24 +405,12 @@ async def test_a_manual_rate_command_is_validated_like_the_api(
         assert latest.rate == Decimal("1.78990000")
 
 
-async def test_a_nonsense_command_value_is_rejected(settings: Settings, strategy: Any) -> None:
+async def test_a_nonsense_command_value_is_rejected(settings: Settings, position: Any) -> None:
     with pytest.raises(ValueError, match="not a valid decimal"):
         await publisher_service.handle_command("fx_strategy_manual_rate", "not a rate")
 
 
-async def test_a_negative_available_amount_is_rejected(settings: Settings, strategy: Any) -> None:
-    with pytest.raises(ValueError):
-        await publisher_service.handle_command("fx_strategy_available_usd", "-1")
-
-
-async def test_an_available_amount_above_the_total_is_rejected(
-    settings: Settings, strategy: Any
-) -> None:
-    with pytest.raises(ValueError, match="between 0 and"):
-        await publisher_service.handle_command("fx_strategy_available_usd", "900000")
-
-
 async def test_an_unknown_command_is_ignored_without_raising(
-    settings: Settings, strategy: Any
+    settings: Settings, position: Any
 ) -> None:
     await publisher_service.handle_command("fx_strategy_not_a_button", "PRESS")

@@ -13,11 +13,10 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from app.api.deps import ActorDep, SessionDep, SettingsDep
-from app.api.errors import NotFoundError, ValidationError
 from app.api.errors import ProviderError as ApiProviderError
+from app.api.errors import ValidationError
 from app.providers.base import ProviderError
 from app.schemas.common import MoneyStr, RateStr, Schema, StrictSchema
-from app.services import strategy_service as strategies
 from app.services import wise_service
 from app.services.execution import EXECUTION_REQUIREMENTS
 
@@ -232,26 +231,15 @@ async def wise_reconcile(
     session: SessionDep,
     settings: SettingsDep,
     actor: ActorDep,
-    strategy_id: int | None = None,
     days: int = Query(default=90, ge=1, le=730),
     commit: bool = Query(default=False, description="Set true to import unmatched conversions"),
 ) -> ReconcileOut:
     """Compare Wise's completed conversions with the records held here.
 
     Defaults to a dry run. Matching is on the Wise reference, so running it
-    twice imports nothing twice.
+    twice imports nothing twice. The pair reconciled is the configured one.
     """
-    strategy = (
-        await strategies.get_strategy(session, strategy_id)
-        if strategy_id is not None
-        else await strategies.active_strategy(session, settings)
-    )
-    if strategy is None:
-        raise NotFoundError("There is no strategy to reconcile against.")
-
-    result = await wise_service.reconcile(
-        session, strategy, settings, days=days, commit=commit, actor=actor
-    )
+    result = await wise_service.reconcile(session, settings, days=days, commit=commit, actor=actor)
     if result.errors and result.fetched == 0:
         raise ApiProviderError("Wise could not be read.", details={"errors": result.errors})
     return ReconcileOut(

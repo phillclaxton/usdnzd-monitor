@@ -78,11 +78,13 @@ function ManualRateForm() {
  */
 function Headline({
   metrics,
+  balance,
   source,
   target,
   ratePlaces,
 }: {
   metrics: PositionMetrics;
+  balance: string;
   source: string;
   target: string;
   ratePlaces: number;
@@ -93,6 +95,11 @@ function Headline({
       subtitle="Computed on read, never stored, so nothing here can drift out of step with the position."
     >
       <div className="fx-grid">
+        <Stat
+          label={`${source} still held`}
+          value={formatMoney(balance, source)}
+          note="what has not been converted yet"
+        />
         <Stat
           label={`${target} value of what is held`}
           value={
@@ -359,7 +366,13 @@ export default function Dashboard() {
       ) : (
         <>
           {metrics && (
-            <Headline metrics={metrics} source={source} target={target} ratePlaces={ratePlaces} />
+            <Headline
+              metrics={metrics}
+              balance={position.current_source_balance}
+              source={source}
+              target={target}
+              ratePlaces={ratePlaces}
+            />
           )}
           {metrics && <CarryingCost metrics={metrics} target={target} />}
           <LatestConversionCard

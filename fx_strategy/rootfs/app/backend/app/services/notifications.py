@@ -40,13 +40,9 @@ MAX_QUEUED = 50
 MAX_ATTEMPTS = 6
 
 #: Alerts that ignore quiet hours when the user has allowed critical overrides.
-CRITICAL_RULES = frozenset(
-    {
-        AlertRuleType.DEADLINE_MISSED,
-        AlertRuleType.PROVIDER_ERROR,
-        AlertRuleType.STRATEGY_COMPLETED,
-    }
-)
+#: A rate the app cannot collect is the one thing worth waking someone for; the
+#: market moving is exactly what quiet hours are for.
+CRITICAL_RULES = frozenset({AlertRuleType.PROVIDER_ERROR})
 
 
 @dataclass(frozen=True, slots=True)

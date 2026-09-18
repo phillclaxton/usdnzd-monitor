@@ -16,10 +16,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.settings import Settings
-from app.schemas.strategy import StrategyIn, TrancheIn
 from app.security.secrets import get_secret_store, reset_secret_store
 from app.services import conversion_service, settings_service, wise_service
-from app.services import strategy_service as strategies
 from app.services.execution import (
     EXECUTION_REQUIREMENTS,
     DisabledExecutor,
@@ -151,29 +149,6 @@ async def settings(session: AsyncSession) -> Settings:
     return loaded
 
 
-@pytest.fixture
-async def strategy(session: AsyncSession) -> Any:
-    created = await strategies.create_strategy(
-        session,
-        StrategyIn(
-            name="Wise",
-            initial_source_amount=Decimal("800000"),
-            funds_available_amount=Decimal("800000"),
-            tranches=[
-                TrancheIn(
-                    sequence=1,
-                    allocation_type="percentage",
-                    allocation_value=Decimal("100"),
-                    target_rate=Decimal("1.7600"),
-                )
-            ],
-        ),
-    )
-    await strategies.activate(session, created)
-    await session.flush()
-    return created
-
-
 # ---------------------------------------------------------------------------
 # Status and credentials
 # ---------------------------------------------------------------------------
@@ -268,24 +243,24 @@ async def test_a_quote_is_labelled_as_an_estimate(
 
 
 async def test_a_dry_run_changes_nothing(
-    session: AsyncSession, settings: Settings, strategy: Any, stub_wise: None
+    session: AsyncSession, settings: Settings, stub_wise: None
 ) -> None:
-    result = await wise_service.reconcile(session, strategy, settings, commit=False)
+    result = await wise_service.reconcile(session, settings, commit=False)
     assert result.dry_run is True
     assert result.fetched == 3
     assert result.skipped_other_pair == 1
     assert result.imported == 0
     assert sorted(result.imported_references) == ["CONV-A", "CONV-B"]
-    assert await conversion_service.list_conversions(session, strategy_id=strategy.id) == []
+    assert await conversion_service.list_conversions(session) == []
 
 
 async def test_committing_imports_the_unmatched_conversions(
-    session: AsyncSession, settings: Settings, strategy: Any, stub_wise: None
+    session: AsyncSession, settings: Settings, stub_wise: None
 ) -> None:
-    result = await wise_service.reconcile(session, strategy, settings, commit=True)
+    result = await wise_service.reconcile(session, settings, commit=True)
     assert result.imported == 2
 
-    rows = await conversion_service.list_conversions(session, strategy_id=strategy.id)
+    rows = await conversion_service.list_conversions(session)
     assert len(rows) == 2
     first = next(row for row in rows if row.provider_transaction_id == "CONV-A")
     assert first.source_amount == Decimal("120000.0000")
@@ -295,30 +270,30 @@ async def test_committing_imports_the_unmatched_conversions(
 
 
 async def test_reconciliation_is_idempotent(
-    session: AsyncSession, settings: Settings, strategy: Any, stub_wise: None
+    session: AsyncSession, settings: Settings, stub_wise: None
 ) -> None:
-    await wise_service.reconcile(session, strategy, settings, commit=True)
-    again = await wise_service.reconcile(session, strategy, settings, commit=True)
+    await wise_service.reconcile(session, settings, commit=True)
+    again = await wise_service.reconcile(session, settings, commit=True)
 
     assert again.imported == 0
     assert again.matched == 2
-    rows = await conversion_service.list_conversions(session, strategy_id=strategy.id)
+    rows = await conversion_service.list_conversions(session)
     assert len(rows) == 2
 
 
 async def test_a_conversion_for_another_pair_is_skipped_not_imported(
-    session: AsyncSession, settings: Settings, strategy: Any, stub_wise: None
+    session: AsyncSession, settings: Settings, stub_wise: None
 ) -> None:
-    result = await wise_service.reconcile(session, strategy, settings, commit=True)
-    rows = await conversion_service.list_conversions(session, strategy_id=strategy.id)
+    result = await wise_service.reconcile(session, settings, commit=True)
+    rows = await conversion_service.list_conversions(session)
     assert result.skipped_other_pair == 1
     assert all(row.provider_transaction_id != "CONV-EUR" for row in rows)
 
 
 async def test_reconciliation_is_audited(
-    session: AsyncSession, settings: Settings, strategy: Any, stub_wise: None
+    session: AsyncSession, settings: Settings, stub_wise: None
 ) -> None:
-    await wise_service.reconcile(session, strategy, settings, commit=True)
+    await wise_service.reconcile(session, settings, commit=True)
     from app.services import audit
 
     events = await audit.list_events(session, event_type="reconciled")
@@ -329,22 +304,6 @@ async def test_reconciliation_is_audited(
 async def test_the_reconcile_endpoint_defaults_to_a_dry_run(
     client: AsyncClient, stub_wise: None
 ) -> None:
-    await client.post(
-        "/api/v1/strategies",
-        json={
-            "name": "Wise",
-            "initial_source_amount": "800000",
-            "funds_available_amount": "800000",
-            "tranches": [
-                {
-                    "sequence": 1,
-                    "allocation_type": "percentage",
-                    "allocation_value": "100",
-                    "target_rate": "1.76",
-                }
-            ],
-        },
-    )
     await client.put(
         "/api/v1/wise/credentials",
         json={"enabled": True, "profile_id": "12345", "source_balance_id": "777"},
@@ -359,10 +318,21 @@ async def test_the_reconcile_endpoint_defaults_to_a_dry_run(
     assert committed["imported"] == 2
 
 
-async def test_reconciling_without_a_strategy_is_a_404(
+async def test_reconciling_needs_no_plan_to_reconcile_against(
     client: AsyncClient, stub_wise: None
 ) -> None:
-    assert (await client.post("/api/v1/wise/reconcile")).status_code == 404
+    """It used to 404 without a strategy.
+
+    Reconciliation is against the record of what moved, and the record belongs
+    to no plan; the pair comes from the settings.
+    """
+    await client.put(
+        "/api/v1/wise/credentials",
+        json={"enabled": True, "profile_id": "12345", "source_balance_id": "777"},
+    )
+    body = (await client.post("/api/v1/wise/reconcile")).json()
+    assert body["dry_run"] is True
+    assert body["fetched"] == 3
 
 
 # ---------------------------------------------------------------------------

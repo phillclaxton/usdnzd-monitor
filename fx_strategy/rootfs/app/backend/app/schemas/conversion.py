@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import Field, model_validator
@@ -13,23 +12,7 @@ from app.schemas.common import MoneyStr, RateStr, Schema, StrictSchema
 RecordSourceName = Literal["manual", "wise_api", "csv_import", "simulation"]
 
 
-class TrancheAllocationIn(StrictSchema):
-    """Part of one conversion attributed to a tranche."""
-
-    tranche_id: int
-    source_amount: MoneyStr
-
-    @model_validator(mode="after")
-    def _positive(self) -> TrancheAllocationIn:
-        if self.source_amount <= 0:
-            raise ValueError("Each allocation must be greater than zero.")
-        return self
-
-
 class ConversionIn(StrictSchema):
-    #: Optional: a conversion is a fact about money that moved, and does not
-    #: need a plan to have existed. Only a tranche link requires one.
-    strategy_id: int | None = None
     executed_at: datetime
     source_amount: MoneyStr
     target_amount: MoneyStr
@@ -39,9 +22,6 @@ class ConversionIn(StrictSchema):
     gross_rate: RateStr | None = None
     provider: str = Field(default="wise", max_length=32)
     provider_transaction_id: str | None = Field(default=None, max_length=128)
-    tranche_id: int | None = None
-    #: Splits one conversion across several tranches. Overrides ``tranche_id``.
-    allocations: list[TrancheAllocationIn] = Field(default_factory=list)
     notes: str = Field(default="", max_length=2000)
     record_source: RecordSourceName = "manual"
     simulated: bool = False
@@ -57,21 +37,6 @@ class ConversionIn(StrictSchema):
             raise ValueError("The converted amount must be greater than zero.")
         if self.target_amount <= 0:
             raise ValueError("The amount received must be greater than zero.")
-        if self.allocations:
-            total = sum((item.source_amount for item in self.allocations), Decimal(0))
-            if total != self.source_amount:
-                raise ValueError(
-                    f"The tranche allocations total {total}, but the conversion is "
-                    f"{self.source_amount}. They must match exactly."
-                )
-            ids = [item.tranche_id for item in self.allocations]
-            if len(ids) != len(set(ids)):
-                raise ValueError("Each tranche may appear only once in the allocations.")
-        if self.strategy_id is None and (self.allocations or self.tranche_id is not None):
-            raise ValueError(
-                "A tranche belongs to a strategy, so a conversion cannot be assigned "
-                "to one without naming the strategy."
-            )
         for fee in (self.fee_source_currency, self.fee_target_currency):
             if fee is not None and fee < 0:
                 raise ValueError("A fee cannot be negative.")
@@ -86,8 +51,6 @@ class ConversionUpdate(ConversionIn):
 
 class ConversionOut(Schema):
     id: int
-    strategy_id: int | None
-    tranche_id: int | None
     source_amount: MoneyStr
     target_amount: MoneyStr
     gross_rate: RateStr

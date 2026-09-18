@@ -12,14 +12,11 @@ second transport over the same calls rather than a second implementation.
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Query, status
 
 from app.api.deps import ActorDep, SessionDep, SettingsDep
 from app.api.errors import ConflictError, ValidationError
 from app.logging_setup import get_logger
-from app.models.position import FxPosition
 from app.schemas.position import (
     AlertHistoryRow,
     ConversionHistoryOut,
@@ -27,17 +24,14 @@ from app.schemas.position import (
     FxStateOut,
     ImportPreview,
     PositionIn,
-    PositionMetrics,
     PositionOut,
     PositionPatch,
-    RealisedSplit,
     RecordConversionIn,
     StateExport,
     StateImport,
 )
 from app.services import fx_alerts, notifications, position_service
 from app.services.conversion_service import ConversionError, DuplicateConversionError
-from app.services.position_math import RealisedTotal
 from app.services.position_service import PositionError
 
 log = get_logger(__name__)
@@ -45,23 +39,7 @@ log = get_logger(__name__)
 router = APIRouter(prefix="/fx", tags=["fx position"])
 
 
-def _split(realised: RealisedTotal) -> RealisedSplit:
-    return RealisedSplit(
-        confirmed=realised.confirmed,
-        estimated=realised.estimated,
-        total=realised.total,
-        includes_estimates=realised.includes_estimates,
-    )
-
-
-def _metrics_out(metrics: dict[str, Any]) -> PositionMetrics:
-    values = dict(metrics)
-    values["realised"] = _split(values["realised"])
-    return PositionMetrics.model_validate(values)
-
-
-def _position_out(position: FxPosition) -> PositionOut:
-    return PositionOut.model_validate(position)
+_split = position_service.realised_out
 
 
 @router.get("/state", response_model=FxStateOut, summary="The current FX position")
@@ -72,13 +50,7 @@ async def read_state(session: SessionDep, settings: SettingsDep) -> FxStateOut:
     An empty position is a normal state to describe, not an error, so the
     first-run case does not arrive at the frontend as a failed request.
     """
-    state = await position_service.get_state(session, settings)
-    return FxStateOut(
-        position=_position_out(state.position) if state.position is not None else None,
-        metrics=_metrics_out(state.metrics) if state.metrics is not None else None,
-        latest_conversion=position_service.latest_conversion_summary(state.latest_conversion),
-        conversion_count=state.conversion_count,
-    )
+    return position_service.state_out(await position_service.get_state(session, settings))
 
 
 @router.post(
@@ -99,7 +71,7 @@ async def write_state(
     """
     position = await position_service.replace_state(session, payload, actor=actor)
     await _announce_position_change(session, settings)
-    return _position_out(position)
+    return PositionOut.model_validate(position)
 
 
 @router.patch("/state", response_model=PositionOut, summary="Update part of the position")
@@ -119,7 +91,7 @@ async def patch_state(
     # up to five minutes later. Only the conditions that read no rate are
     # evaluated: nothing about the market has changed by someone typing.
     await _announce_position_change(session, settings)
-    return _position_out(position)
+    return PositionOut.model_validate(position)
 
 
 async def _announce_position_change(session: SessionDep, settings: SettingsDep) -> None:

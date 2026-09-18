@@ -187,7 +187,7 @@ export default function DiagnosticsPage() {
               if (!file) return;
               if (
                 window.confirm(
-                  'Restoring replaces every strategy, conversion and rate in this installation. Continue?',
+                  'Restoring replaces the position, every conversion and every rate in this installation. Continue?',
                 )
               ) {
                 restore.mutate({ file, replace: true });

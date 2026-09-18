@@ -35,7 +35,6 @@ class GeneralSettings(Section):
     target_currency: str = "NZD"
     rate_convention: QuoteConvention = "target_per_source"
     setup_complete: bool = False
-    active_strategy_id: int | None = None
 
     @field_validator("source_currency", "target_currency")
     @classmethod

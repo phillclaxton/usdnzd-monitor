@@ -12,27 +12,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.home_assistant.client import set_home_assistant
 from app.security.secrets import get_secret_store, reset_secret_store
-from app.tests.test_alerts import FakeHomeAssistant
-
-LADDER = [
-    {
-        "sequence": 1,
-        "allocation_type": "percentage",
-        "allocation_value": "100",
-        "target_rate": "1.7600",
-    }
-]
+from app.tests.helpers import FakeHomeAssistant
 
 
-async def make_strategy(client: AsyncClient, **overrides: Any) -> dict[str, Any]:
+async def make_position(client: AsyncClient, **overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "name": "Simulated",
-        "initial_source_amount": "800000",
-        "funds_available_amount": "800000",
-        "tranches": LADDER,
+        "current_source_balance": "800000",
+        "baseline_rate": "1.7000",
     }
     payload.update(overrides)
-    response = await client.post("/api/v1/strategies", json=payload)
+    response = await client.post("/api/v1/fx/state", json=payload)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def record(client: AsyncClient, **overrides: Any) -> dict[str, Any]:
+    """A conversion recorded as history, which never moves the balance."""
+    payload: dict[str, Any] = {
+        "executed_at": "2026-08-01T00:00:00Z",
+        "source_amount": "100000",
+        "target_amount": "175500",
+    }
+    payload.update(overrides)
+    response = await client.post("/api/v1/conversions", json=payload)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -69,24 +71,15 @@ async def test_a_simulated_rate_needs_simulation_enabled(client: AsyncClient) ->
 async def test_simulated_data_is_kept_out_of_the_real_position(
     client: AsyncClient,
 ) -> None:
-    strategy = await make_strategy(client)
+    """A replay must never change what the position is said to be worth."""
+    await make_position(client)
     await client.put("/api/v1/simulation", json={"enabled": True})
     await client.post("/api/v1/simulation/rate", json={"rate": "1.7900"})
-    await client.post(
-        "/api/v1/conversions",
-        json={
-            "strategy_id": strategy["id"],
-            "executed_at": "2026-08-01T00:00:00Z",
-            "source_amount": "100000",
-            "target_amount": "179000",
-            "simulated": True,
-        },
-    )
+    await record(client, source_amount="100000", target_amount="179000", simulated=True)
 
-    summary = (await client.get(f"/api/v1/strategies/{strategy['id']}/summary")).json()
-    assert summary["converted_source_amount"] == "0.0000"
-    assert summary["remaining_source_amount"] == "800000.0000"
-    assert summary["blended_effective_rate"] is None
+    metrics = (await client.get("/api/v1/fx/state")).json()["metrics"]
+    assert metrics["total_source_converted"] == "0.0000"
+    assert metrics["realised"]["total"] == "0.0000"
 
 
 async def test_enabling_simulation_is_audited(client: AsyncClient) -> None:
@@ -98,26 +91,23 @@ async def test_enabling_simulation_is_audited(client: AsyncClient) -> None:
 async def test_a_replay_drives_the_whole_pipeline(
     client: AsyncClient, fake_home_assistant: FakeHomeAssistant
 ) -> None:
-    strategy = await make_strategy(client)
-    await client.post(f"/api/v1/strategies/{strategy['id']}/activate")
+    await make_position(client)
     await client.put("/api/v1/settings", json={"notifications": {"services": ["notify.test"]}})
     await client.put("/api/v1/simulation", json={"enabled": True})
 
-    # Below the target, then across it twice — the confirmation rule needs two
-    # qualifying samples at least 30 seconds apart.
+    # The first sample primes and says nothing; the rise across the rest is
+    # what the movement alerts are for.
     body = (
         await client.post(
             "/api/v1/simulation/replay",
-            json={"rates": ["1.7400", "1.7500", "1.7610", "1.7620"], "seconds_between": 60},
+            json={"rates": ["1.7400", "1.7500", "1.7610", "1.7720"], "seconds_between": 60},
         )
     ).json()
 
     assert body["steps"] == 4
     assert body["samples_written"] == 4
-    assert body["final_rate"] == "1.76200000"
+    assert body["final_rate"] == "1.77200000"
     assert body["notifications"] >= 1
-    titles = [call["title"] for call in fake_home_assistant.calls]
-    assert any("target reached" in title for title in titles)
 
 
 async def test_a_replay_needs_simulation_enabled(client: AsyncClient) -> None:
@@ -135,30 +125,19 @@ async def test_a_replay_rejects_an_impossible_rate(client: AsyncClient) -> None:
 async def test_reset_removes_simulated_data_and_leaves_real_data(
     client: AsyncClient,
 ) -> None:
-    strategy = await make_strategy(client)
+    await make_position(client)
     # A real conversion and a real rate.
     await client.post("/api/v1/rates/manual", json={"rate": "1.7000"})
-    await client.post(
-        "/api/v1/conversions",
-        json={
-            "strategy_id": strategy["id"],
-            "executed_at": "2026-08-01T00:00:00Z",
-            "source_amount": "100000",
-            "target_amount": "170000",
-        },
-    )
+    await record(client, source_amount="100000", target_amount="170000")
     # Then simulated ones.
     await client.put("/api/v1/simulation", json={"enabled": True})
     await client.post("/api/v1/simulation/rate", json={"rate": "1.9000"})
-    await client.post(
-        "/api/v1/conversions",
-        json={
-            "strategy_id": strategy["id"],
-            "executed_at": "2026-08-02T00:00:00Z",
-            "source_amount": "50000",
-            "target_amount": "95000",
-            "simulated": True,
-        },
+    await record(
+        client,
+        executed_at="2026-08-02T00:00:00Z",
+        source_amount="50000",
+        target_amount="95000",
+        simulated=True,
     )
 
     before = (await client.get("/api/v1/simulation")).json()
@@ -170,7 +149,7 @@ async def test_reset_removes_simulated_data_and_leaves_real_data(
     after = (await client.get("/api/v1/simulation")).json()
     assert after["simulated_conversions"] == 0
 
-    conversions = (await client.get(f"/api/v1/conversions?strategy_id={strategy['id']}")).json()
+    conversions = (await client.get("/api/v1/conversions")).json()
     assert len(conversions["conversions"]) == 1
     assert conversions["total_source_amount"] == "100000.0000"
 
@@ -186,17 +165,9 @@ async def test_a_backup_contains_the_data_but_never_a_credential(
     reset_secret_store()
     get_secret_store().set("wise_api_token", "wise-secret-token-999")
 
-    strategy = await make_strategy(client)
+    await make_position(client)
     await client.post("/api/v1/rates/manual", json={"rate": "1.7550"})
-    await client.post(
-        "/api/v1/conversions",
-        json={
-            "strategy_id": strategy["id"],
-            "executed_at": "2026-08-01T00:00:00Z",
-            "source_amount": "100000",
-            "target_amount": "175500",
-        },
-    )
+    await record(client)
 
     response = await client.post("/api/v1/backup")
     assert response.status_code == 200
@@ -204,7 +175,7 @@ async def test_a_backup_contains_the_data_but_never_a_credential(
     document = response.json()
 
     assert document["contains_secrets"] is False
-    assert document["counts"]["strategies"] == 1
+    assert document["counts"]["fx_position"] == 1
     assert document["counts"]["conversions"] == 1
     assert "wise-secret-token-999" not in response.text
     reset_secret_store()
@@ -213,16 +184,12 @@ async def test_a_backup_contains_the_data_but_never_a_credential(
 async def test_a_backup_round_trips_into_a_fresh_install(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    strategy = await make_strategy(client)
-    await client.post(
-        "/api/v1/conversions",
-        json={
-            "strategy_id": strategy["id"],
-            "executed_at": "2026-08-01T00:00:00Z",
-            "source_amount": "120000",
-            "target_amount": "206400",
-            "provider_transaction_id": "WISE-BK",
-        },
+    await make_position(client)
+    await record(
+        client,
+        source_amount="120000",
+        target_amount="206400",
+        provider_transaction_id="WISE-BK",
     )
     document = (await client.post("/api/v1/backup")).json()
 
@@ -230,7 +197,7 @@ async def test_a_backup_round_trips_into_a_fresh_install(
     restored = await client.post("/api/v1/restore?replace=true", files=files)
     assert restored.status_code == 200
     body = restored.json()
-    assert body["restored"]["strategies"] == 1
+    assert body["restored"]["fx_position"] == 1
     assert "re-enter any API tokens" in body["message"]
 
     conversions = (await client.get("/api/v1/conversions")).json()
@@ -241,13 +208,14 @@ async def test_a_backup_round_trips_into_a_fresh_install(
 async def test_restoring_into_a_populated_install_is_refused_by_default(
     client: AsyncClient,
 ) -> None:
-    await make_strategy(client)
+    """A saved position is a populated install, with or without a strategy."""
+    await make_position(client)
     document = (await client.post("/api/v1/backup")).json()
     files = {"file": ("backup.json", json.dumps(document), "application/json")}
 
     response = await client.post("/api/v1/restore", files=files)
     assert response.status_code == 422
-    assert "already has 1 strategy" in response.json()["error"]["message"]
+    assert "a saved position" in response.json()["error"]["message"]
 
 
 async def test_a_foreign_file_is_refused(client: AsyncClient) -> None:
@@ -282,16 +250,8 @@ async def test_a_restore_is_audited(client: AsyncClient) -> None:
 
 
 async def test_decimals_survive_a_backup_round_trip(client: AsyncClient) -> None:
-    strategy = await make_strategy(client)
-    await client.post(
-        "/api/v1/conversions",
-        json={
-            "strategy_id": strategy["id"],
-            "executed_at": "2026-08-01T00:00:00Z",
-            "source_amount": "123456.7891",
-            "target_amount": "216543.2109",
-        },
-    )
+    await make_position(client)
+    await record(client, source_amount="123456.7891", target_amount="216543.2109")
     document = (await client.post("/api/v1/backup")).json()
     files = {"file": ("backup.json", json.dumps(document), "application/json")}
     await client.post("/api/v1/restore?replace=true", files=files)

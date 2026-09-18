@@ -7,15 +7,14 @@ from fastapi import APIRouter
 from app.api.v1 import (
     audit,
     conversions,
+    fee_models,
     fx,
     health,
     home_assistant,
     providers,
     rates,
     settings,
-    strategies,
     system,
-    tranches,
     wise,
 )
 
@@ -23,8 +22,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router)
 api_router.include_router(rates.router)
 api_router.include_router(providers.router)
-api_router.include_router(strategies.router)
-api_router.include_router(tranches.router)
+api_router.include_router(fee_models.router)
 api_router.include_router(conversions.router)
 api_router.include_router(fx.router)
 api_router.include_router(wise.router)
