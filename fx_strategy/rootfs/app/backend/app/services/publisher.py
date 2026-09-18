@@ -23,14 +23,14 @@ from app.home_assistant.entities import (
 )
 from app.home_assistant.mqtt import MqttPublisher, all_definitions, get_publisher
 from app.logging_setup import get_logger
-from app.money import MoneyError, quantize_money, quantize_rate
+from app.money import MoneyError, quantize_rate
 from app.scheduler.jobs import build_registry
 from app.schemas.rates import CurrentRateOut, RateChanges
 from app.schemas.settings import Settings
-from app.schemas.strategy import StrategySummaryOut
-from app.services import rate_service, settings_service, summary_service
-from app.services import strategy_service as strategies
+from app.services import calculations as calc
+from app.services import position_service, rate_service, settings_service
 from app.services.audit import new_correlation_id
+from app.services.calculations import RateZone
 
 log = get_logger(__name__)
 
@@ -39,9 +39,8 @@ log = get_logger(__name__)
 REST_FALLBACK_OBJECT_IDS = (
     "fx_strategy_usd_nzd_rate",
     "fx_strategy_usd_remaining",
-    "fx_strategy_one_cent_exposure_nzd",
-    "fx_strategy_next_target_rate",
-    "fx_strategy_strategy_status",
+    "fx_strategy_nzd_value",
+    "fx_strategy_daily_carrying_cost_nzd",
 )
 
 
@@ -85,10 +84,8 @@ async def build_context(session: AsyncSession, settings: Settings) -> EntityCont
         low_6m=current.low_6m,
     )
 
-    strategy = await strategies.active_strategy(session, settings)
-    summary: StrategySummaryOut | None = None
-    if strategy is not None:
-        summary = await summary_service.build_summary(session, strategy, settings)
+    state = position_service.state_out(await position_service.get_state(session, settings))
+    zone = calc.classify_rate(current.rate, _zones(settings))
 
     statuses = await rate_service.provider_statuses(session)
     # A provider that is merely not set up is not a problem to report. The
@@ -105,7 +102,10 @@ async def build_context(session: AsyncSession, settings: Settings) -> EntityCont
 
     return EntityContext(
         rate=rate_out,
-        summary=summary,
+        position=state.position,
+        metrics=state.metrics,
+        zone_label=zone.label if zone is not None else None,
+        zone_guidance=zone.guidance if zone is not None else None,
         provider_healthy=not unhealthy,
         provider_message=(
             f"{unhealthy[0].provider}: {unhealthy[0].last_error}"
@@ -116,6 +116,20 @@ async def build_context(session: AsyncSession, settings: Settings) -> EntityCont
         wise_connected=settings.providers.wise.enabled,
         simulation=settings.simulation.enabled,
     )
+
+
+def _zones(settings: Settings) -> list[RateZone]:
+    """The configured rate bands, as the arithmetic wants them.
+
+    Zone labels are the user's own configuration and never a forecast, which is
+    why they are a setting and not something derived.
+    """
+    if not settings.zones.enabled:
+        return []
+    return [
+        RateZone(label=zone.label, guidance=zone.guidance, lower_bound=zone.lower_bound)
+        for zone in settings.zones.zones
+    ]
 
 
 async def publish(
@@ -228,10 +242,7 @@ async def _dispatch(
         await monitor.send_test_notification(session, settings)
         return
 
-    if object_id in ("fx_strategy_recalculate", "fx_strategy_export_backup"):
-        strategy = await strategies.active_strategy(session, settings)
-        if strategy is not None:
-            strategies.recalculate_allocations(strategy)
+    if object_id == "fx_strategy_export_backup":
         await publish(session, settings, force_discovery=True)
         return
 
@@ -248,33 +259,6 @@ async def _dispatch(
             rate=quantize_rate(rate),
             note="Set from Home Assistant",
             simulated=settings.simulation.enabled,
-            actor="home_assistant",
-        )
-        return
-
-    if object_id.startswith("fx_strategy_available_"):
-        amount = quantize_money(_parse_decimal(payload, "amount"))
-        strategy = await strategies.active_strategy(session, settings)
-        if strategy is None:
-            raise ValueError("There is no active strategy to update.")
-        if amount < 0 or amount > strategy.initial_source_amount:
-            raise ValueError(
-                f"Available funds must be between 0 and {strategy.initial_source_amount}."
-            )
-        from app.models.audit import AuditEventType
-        from app.services import audit
-
-        before = strategy.funds_available_amount
-        strategy.funds_available_amount = amount
-        await session.flush()
-        await audit.record(
-            session,
-            event_type=AuditEventType.UPDATED,
-            entity_type="strategy",
-            entity_id=strategy.id,
-            message=f"Available funds set to {amount} from Home Assistant",
-            before={"funds_available_amount": before},
-            after={"funds_available_amount": amount},
             actor="home_assistant",
         )
         return

@@ -8,8 +8,6 @@ const NAV = [
   { to: '/', label: 'Dashboard', glyph: '◎', end: true },
   { to: '/position', label: 'Position', glyph: '🧭' },
   { to: '/chart', label: 'Rate chart', glyph: '📈' },
-  { to: '/strategy', label: 'Strategy', glyph: '🪜' },
-  { to: '/scenarios', label: 'Scenarios', glyph: '⚖' },
   { to: '/conversions', label: 'Conversions', glyph: '💱' },
   { to: '/settings', label: 'Settings', glyph: '⚙' },
   { to: '/diagnostics', label: 'Diagnostics', glyph: '🩺' },

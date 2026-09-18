@@ -23,7 +23,7 @@ from app.logging_setup import get_logger
 from app.models.alert import NotificationLog, TrancheAlertState
 from app.models.audit import AuditEventType
 from app.models.rate import ManualRate, RateSample
-from app.models.strategy import Conversion, Strategy
+from app.models.strategy import Conversion
 from app.providers.base import QuoteType, RatePoint
 from app.schemas.settings import Settings
 from app.services import audit, rate_service, settings_service
@@ -301,7 +301,3 @@ async def import_replay_points(
         quote_type=QuoteType.SIMULATED,
         actor=actor,
     )
-
-
-def simulated_data_present(strategy: Strategy) -> bool:
-    return any(conversion.simulated for conversion in strategy.conversions)

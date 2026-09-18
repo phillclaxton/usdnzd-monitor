@@ -27,9 +27,13 @@ from app.models.position import POSITION_ID, FxAlertState, FxPosition
 from app.models.strategy import Conversion
 from app.money import ZERO, quantize_money
 from app.schemas.position import (
+    FxStateOut,
     ImportConversion,
     PositionIn,
+    PositionMetrics,
+    PositionOut,
     PositionPatch,
+    RealisedSplit,
     RecordConversionIn,
     StateImport,
 )
@@ -335,19 +339,16 @@ async def record_conversion(
         provider_transaction_id=payload.provider_transaction_id,
         notes=payload.notes,
         amounts_estimated=payload.amounts_estimated,
-        # The balance is the position's, not a strategy's recorded total, so the
-        # strategy-side remaining check has nothing to say here. The balance
-        # check below is the one that matters.
+        # Whether more was converted than is held is checked below, against the
+        # balance. The record itself only validates the amounts.
         correcting_earlier_record=True,
     )
-    created = await conversion_service.create_conversion(
+    conversion = await conversion_service.create_conversion(
         session,
-        None,
         conversion_in,
         currencies=(position.source_currency, position.target_currency),
         actor=actor,
     )
-    conversion = created[0]
 
     before_balance = position.current_source_balance
     position.current_source_balance = quantize_money(
@@ -572,7 +573,6 @@ async def import_state(
     for row, source, target, rate in rows:
         await conversion_service.create_conversion(
             session,
-            None,
             conversion_service.ConversionIn(
                 executed_at=row.executed_at or utcnow(),
                 source_amount=source,
@@ -624,6 +624,36 @@ async def import_state(
     return result
 
 
+def realised_out(realised: RealisedTotal) -> RealisedSplit:
+    return RealisedSplit(
+        confirmed=realised.confirmed,
+        estimated=realised.estimated,
+        total=realised.total,
+        includes_estimates=realised.includes_estimates,
+    )
+
+
+def metrics_out(metrics: dict[str, Any]) -> PositionMetrics:
+    values = dict(metrics)
+    values["realised"] = realised_out(values["realised"])
+    return PositionMetrics.model_validate(values)
+
+
+def state_out(state: PositionState) -> FxStateOut:
+    """The whole state in one shape.
+
+    Both the ``/fx`` router and the Home Assistant publisher answer with the
+    same figures, so they read them through the same function rather than each
+    assembling them and slowly disagreeing.
+    """
+    return FxStateOut(
+        position=PositionOut.model_validate(state.position) if state.position is not None else None,
+        metrics=metrics_out(state.metrics) if state.metrics is not None else None,
+        latest_conversion=latest_conversion_summary(state.latest_conversion),
+        conversion_count=state.conversion_count,
+    )
+
+
 def latest_conversion_summary(conversion: Conversion | None) -> dict[str, Any] | None:
     """The one-line "most recent conversion" the dashboard shows."""
     if conversion is None:
@@ -650,7 +680,10 @@ __all__ = [
     "get_state",
     "import_state",
     "latest_conversion_summary",
+    "metrics_out",
+    "realised_out",
     "record_conversion",
     "replace_state",
+    "state_out",
     "update_state",
 ]

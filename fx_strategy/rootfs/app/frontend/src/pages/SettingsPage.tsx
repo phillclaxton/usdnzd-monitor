@@ -73,7 +73,7 @@ export default function SettingsPage() {
             <input aria-label="Target currency" value={general.target_currency} readOnly />
           </div>
           <span className="fx-hint">
-            The pair is fixed once a strategy exists, so historical records stay comparable.
+            The pair is fixed once anything has been recorded, so historical records stay comparable.
           </span>
         </Field>
       </Card>

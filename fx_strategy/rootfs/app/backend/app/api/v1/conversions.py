@@ -10,7 +10,7 @@ from fastapi.responses import PlainTextResponse
 from app.api.deps import ActorDep, SessionDep, SettingsDep
 from app.api.errors import ConflictError, NotFoundError, ValidationError
 from app.database import utcnow
-from app.models.strategy import Conversion, Strategy
+from app.models.strategy import Conversion
 from app.schemas.common import Message
 from app.schemas.conversion import (
     ConversionImportPreview,
@@ -20,26 +20,11 @@ from app.schemas.conversion import (
     ConversionUpdate,
 )
 from app.services import conversion_service, csv_io
-from app.services import strategy_service as strategies
 from app.services.conversion_service import ConversionError, DuplicateConversionError
 
 router = APIRouter(prefix="/conversions", tags=["conversions"])
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
-
-
-async def _optional_strategy(session: SessionDep, strategy_id: int | None) -> Strategy | None:
-    """The named strategy, or ``None`` when none was named.
-
-    Naming nothing is allowed; naming a strategy that does not exist is still a
-    404, so a typo does not quietly record an unattached conversion.
-    """
-    if strategy_id is None:
-        return None
-    strategy = await strategies.get_strategy(session, strategy_id)
-    if strategy is None:
-        raise NotFoundError(f"Strategy {strategy_id} does not exist.")
-    return strategy
 
 
 async def _conversion(session: SessionDep, conversion_id: int) -> Conversion:
@@ -52,16 +37,12 @@ async def _conversion(session: SessionDep, conversion_id: int) -> Conversion:
 @router.get("", response_model=ConversionListOut, summary="List conversions")
 async def list_conversions(
     session: SessionDep,
-    strategy_id: int | None = None,
-    tranche_id: int | None = None,
     include_simulated: bool = True,
     limit: int = Query(default=200, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> ConversionListOut:
     rows = await conversion_service.list_conversions(
         session,
-        strategy_id=strategy_id,
-        tranche_id=tranche_id,
         include_simulated=include_simulated,
         limit=limit,
         offset=offset,
@@ -79,24 +60,21 @@ async def list_conversions(
 
 @router.post(
     "",
-    response_model=list[ConversionOut],
+    response_model=ConversionOut,
     status_code=status.HTTP_201_CREATED,
     summary="Record a conversion",
 )
 async def create_conversion(
     payload: ConversionIn, session: SessionDep, settings: SettingsDep, actor: ActorDep
-) -> list[ConversionOut]:
+) -> ConversionOut:
     """Record a conversion that has already happened.
 
-    ``strategy_id`` is optional: a conversion is a fact about money that moved.
-    Splitting across tranches produces one row per tranche, sharing the
-    transaction reference, and does require a strategy.
+    This does **not** change the held balance. ``POST /fx/conversions`` is the
+    one that does, and that difference is the only reason both exist.
     """
-    strategy = await _optional_strategy(session, payload.strategy_id)
     try:
         created = await conversion_service.create_conversion(
             session,
-            strategy,
             payload,
             currencies=(settings.general.source_currency, settings.general.target_currency),
             actor=actor,
@@ -105,15 +83,13 @@ async def create_conversion(
         raise ConflictError(str(exc)) from exc
     except ConversionError as exc:
         raise ValidationError(str(exc)) from exc
-    return [ConversionOut.model_validate(row) for row in created]
+    return ConversionOut.model_validate(created)
 
 
 @router.get("/export", summary="Export conversions as CSV")
-async def export_conversions(
-    session: SessionDep, strategy_id: int | None = None
-) -> PlainTextResponse:
+async def export_conversions(session: SessionDep) -> PlainTextResponse:
     """Download in the same format the importer accepts."""
-    rows = await conversion_service.list_conversions(session, strategy_id=strategy_id, limit=5000)
+    rows = await conversion_service.list_conversions(session, limit=5000)
     body = csv_io.write_csv(
         [*csv_io.CONVERSION_REQUIRED_COLUMNS, *csv_io.CONVERSION_OPTIONAL_COLUMNS],
         [
@@ -127,7 +103,6 @@ async def export_conversions(
                 row.fee_target_currency,
                 row.provider,
                 row.provider_transaction_id,
-                row.tranche_id,
                 row.notes,
             )
             for row in rows
@@ -152,11 +127,9 @@ async def update_conversion(
 ) -> ConversionOut:
     """Correct a record. The previous values stay in the audit trail."""
     conversion = await _conversion(session, conversion_id)
-    strategy = await _optional_strategy(session, conversion.strategy_id)
     try:
         updated = await conversion_service.update_conversion(
             session,
-            strategy,
             conversion,
             payload,
             reason=payload.correction_reason,
@@ -177,10 +150,7 @@ async def delete_conversion(
     reason: str = Query(default="", max_length=500),
 ) -> Message:
     conversion = await _conversion(session, conversion_id)
-    strategy = await _optional_strategy(session, conversion.strategy_id)
-    await conversion_service.delete_conversion(
-        session, strategy, conversion, reason=reason, actor=actor
-    )
+    await conversion_service.delete_conversion(session, conversion, reason=reason, actor=actor)
     return Message(
         message=(f"Conversion {conversion_id} deleted. The audit trail keeps its values.")
     )
@@ -193,18 +163,15 @@ async def import_conversions(
     session: SessionDep,
     settings: SettingsDep,
     actor: ActorDep,
-    strategy_id: int | None = Query(default=None),
     file: UploadFile = File(...),
     commit: bool = Query(default=False, description="Set true to write the rows"),
 ) -> ConversionImportPreview:
     """Validate a CSV of past conversions, writing only when ``commit`` is set.
 
-    Without ``strategy_id`` the rows are imported unattached, and any
-    ``tranche_reference`` column is ignored: there is no ladder to resolve it
-    against.
+    A ``tranche_reference`` column is accepted and ignored: files exported by
+    earlier versions carry one, and refusing them over a column that no longer
+    means anything would be a poor trade.
     """
-    strategy = await _optional_strategy(session, strategy_id)
-
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise ValidationError(f"The file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
@@ -223,7 +190,6 @@ async def import_conversions(
     ]
     duplicates = 0
     importable: list[ConversionIn] = []
-    tranche_ids = {tranche.id for tranche in strategy.tranches} if strategy is not None else set()
 
     for index, row in enumerate(parsed.rows, start=2):
         transaction_id = row.get("provider_transaction_id")
@@ -241,35 +207,8 @@ async def import_conversions(
             )
             continue
 
-        tranche_reference = row.get("tranche_reference")
-        tranche_id: int | None = None
-        if tranche_reference and strategy is not None:
-            try:
-                candidate = int(tranche_reference)
-            except ValueError:
-                candidate = 0
-            if candidate in tranche_ids:
-                tranche_id = candidate
-            else:
-                by_sequence = next(
-                    (t.id for t in strategy.tranches if str(t.sequence) == tranche_reference),
-                    None,
-                )
-                tranche_id = by_sequence
-                if tranche_id is None:
-                    errors.append(
-                        {
-                            "row": index,
-                            "message": (
-                                f"Tranche {tranche_reference!r} was not found; the row will be "
-                                "imported unassigned."
-                            ),
-                        }
-                    )
-
         importable.append(
             ConversionIn(
-                strategy_id=strategy.id if strategy is not None else None,
                 executed_at=row["executed_at"],
                 source_amount=row["source_amount"],
                 target_amount=row["target_amount"],
@@ -278,11 +217,8 @@ async def import_conversions(
                 fee_target_currency=row.get("fee_target_currency"),
                 provider=row.get("provider", "csv_import"),
                 provider_transaction_id=transaction_id,
-                tranche_id=tranche_id,
                 notes=row.get("notes", ""),
                 record_source="csv_import",
-                # An import is history, so it is allowed to exceed the current
-                # remaining balance without being flagged as impossible.
                 correcting_earlier_record=True,
             )
         )
@@ -293,7 +229,7 @@ async def import_conversions(
         for payload in importable:
             try:
                 await conversion_service.create_conversion(
-                    session, strategy, payload, currencies=pair, actor=actor
+                    session, payload, currencies=pair, actor=actor
                 )
                 imported += 1
             except ConversionError as exc:
@@ -310,7 +246,6 @@ async def import_conversions(
                 "executed_at": payload.executed_at.isoformat(),
                 "source_amount": format(payload.source_amount, "f"),
                 "target_amount": format(payload.target_amount, "f"),
-                "tranche_id": payload.tranche_id,
             }
             for payload in importable[:10]
         ],

@@ -7,10 +7,8 @@ import ConversionsPage from './pages/ConversionsPage';
 import Dashboard from './pages/Dashboard';
 import DiagnosticsPage from './pages/DiagnosticsPage';
 import PositionPage from './pages/PositionPage';
-import ScenariosPage from './pages/ScenariosPage';
 import SettingsPage from './pages/SettingsPage';
 import SetupWizard from './pages/SetupWizard';
-import StrategyEditor from './pages/StrategyEditor';
 
 // The charting library is by far the largest dependency. Splitting it out keeps
 // the dashboard fast to open on a phone, which is where it is mostly read.
@@ -24,8 +22,6 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/setup" element={<SetupWizard />} />
           <Route path="/chart" element={<ChartPage />} />
-          <Route path="/strategy" element={<StrategyEditor />} />
-          <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/position" element={<PositionPage />} />
           <Route path="/conversions" element={<ConversionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

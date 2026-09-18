@@ -1,13 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * The critical flow from the product specification, end to end, through a
- * simulated Home Assistant Ingress prefix:
+ * The critical flow, end to end, through a simulated Home Assistant Ingress
+ * prefix:
  *
- * open → create the USD 800,000 strategy with the recommended ladder →
- * activate → inject rates → cross a target → record the conversion → check the
- * remaining balance and blended rate → export → restart → check the data
- * survived.
+ * open → enter the position → record a conversion → watch the improvement
+ * figures move → export the state → restart → check the data survived.
  *
  * This is one continuous narrative over a single database, so it runs in the
  * `desktop` project only. Running it a second time under another project would
@@ -16,14 +14,6 @@ import { expect, test } from '@playwright/test';
  */
 
 const INGRESS = '/api/hassio_ingress/E2ETESTTOKEN';
-
-const LADDER = [
-  { sequence: 1, allocation_type: 'percentage', allocation_value: '15', target_rate: '1.7200' },
-  { sequence: 2, allocation_type: 'percentage', allocation_value: '20', target_rate: '1.7400' },
-  { sequence: 3, allocation_type: 'percentage', allocation_value: '25', target_rate: '1.7600' },
-  { sequence: 4, allocation_type: 'percentage', allocation_value: '20', target_rate: '1.7800' },
-  { sequence: 5, allocation_type: 'percentage', allocation_value: '20', target_rate: '1.8000' },
-];
 
 const api = (path: string) => `${INGRESS}/api/v1/${path}`;
 
@@ -40,9 +30,8 @@ test('the app opens under an Ingress prefix with relative assets', async ({ page
   await expect(page.getByRole('heading', { name: 'FX Strategy Manager' })).toBeVisible();
 
   // Every asset resolved under the prefix rather than at the origin root. API
-  // calls are excluded on purpose: on a fresh install there is no strategy yet,
-  // and `GET /summary` answering 404 is the correct response to that, not a
-  // base-path failure.
+  // calls are excluded on purpose: on a fresh install `GET /fx/state` answers
+  // 200 with a null position, but other routes may legitimately 404.
   const failed: string[] = [];
   page.on('response', (res) => {
     if (res.status() >= 400 && !res.url().includes('/api/v1/')) {
@@ -53,154 +42,156 @@ test('the app opens under an Ingress prefix with relative assets', async ({ page
   expect(failed).toEqual([]);
 });
 
-test('the full strategy lifecycle', async ({ page, request }) => {
-  // 1-5. Create and activate the USD 800,000 strategy with the recommended ladder.
-  const created = await request.post(api('strategies'), {
-    data: {
-      name: 'USD to NZD',
-      initial_source_amount: '800000',
-      funds_available_amount: '800000',
-      walk_away_rate: '1.7800',
-      tranches: LADDER,
-    },
-  });
-  expect(created.status()).toBe(201);
-  const strategy = await created.json();
-  expect(strategy.tranches.map((t: { calculated_source_amount: string }) => t.calculated_source_amount)).toEqual([
-    '120000.0000',
-    '160000.0000',
-    '200000.0000',
-    '160000.0000',
-    '160000.0000',
-  ]);
-
-  const activated = await request.post(api(`strategies/${strategy.id}/activate`));
-  expect(activated.ok()).toBeTruthy();
-
-  // 6. Inject a rate below the first target.
-  await request.post(api('rates/manual'), { data: { rate: '1.7100' } });
+test('a fresh install offers the position form and has nothing to value', async ({
+  page,
+  request,
+}) => {
+  const state = await (await request.get(api('fx/state'))).json();
+  // Not a 404: having entered nothing is a normal state to describe.
+  expect(state.position).toBeNull();
+  expect(state.metrics).toBeNull();
 
   await page.goto(`${INGRESS}/`);
-  await expect(page.getByText('1 USD = 1.7100 NZD')).toBeVisible();
-  // The headline exposure figure.
-  await expect(page.getByText('NZD 8,000.00').first()).toBeVisible();
+  await expect(page.getByText(/Nothing is saved yet/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save position' })).toBeVisible();
+});
 
-  // 7. Cross the first target.
-  await request.post(api('rates/manual'), { data: { rate: '1.7250' } });
-  await page.reload();
+test('the position, what it is worth, and what waiting for it costs', async ({ page, request }) => {
+  await request.post(api('rates/manual'), { data: { rate: '1.7500' } });
 
-  // 8. The tranche shows as at or above its target — and says nothing converted.
-  await expect(page.getByText('At or above').first()).toBeVisible();
-  await expect(
-    page.getByText(/A target being reached does not convert anything/),
-  ).toBeVisible();
-
-  // 9. Record the conversion Wise performed.
-  const conversion = await request.post(api('conversions'), {
+  // 800,000 USD against a 1.7000 baseline, with a 36,500 offset shortfall at
+  // 6%. Every figure below divides exactly, so a wrong answer is obvious.
+  const saved = await request.post(api('fx/state'), {
     data: {
-      strategy_id: strategy.id,
+      current_source_balance: '800000',
+      baseline_rate: '1.7000',
+      floating_loan_rate: '0.0600',
+      current_offset_shortfall_nzd: '36500',
+      monthly_nzd_burn: '4000',
+    },
+  });
+  expect(saved.ok()).toBeTruthy();
+
+  const state = await (await request.get(api('fx/state'))).json();
+  expect(state.metrics.current_target_value).toBe('1400000.0000');
+  // 800,000 x (1.7500 - 1.7000).
+  expect(state.metrics.unrealised_improvement).toBe('40000.0000');
+  // 36,500 x 0.06 / 365 is 6.00 a day, and / 12 is 182.50 a month.
+  expect(state.metrics.daily_carrying_cost).toBe('6.0000');
+  expect(state.metrics.monthly_carrying_cost).toBe('182.5000');
+
+  await page.goto(`${INGRESS}/`);
+  await expect(page.getByText('NZD 1,400,000.00')).toBeVisible();
+  // Twice over, in fact: with nothing converted yet, the unrealised figure and
+  // the total improvement are the same number.
+  await expect(page.getByText('NZD 40,000.00').first()).toBeVisible();
+  await expect(page.getByText('NZD 6.00')).toBeVisible();
+});
+
+test('recording a conversion reduces the balance and realises the improvement', async ({
+  page,
+  request,
+}) => {
+  // 120,000 at 1.7600 against the 1.7000 baseline: 7,200 realised.
+  const recorded = await request.post(api('fx/conversions'), {
+    data: {
       executed_at: new Date().toISOString(),
       source_amount: '120000',
-      target_amount: '206400',
-      tranche_id: strategy.tranches[0].id,
+      target_amount: '211200',
       provider_transaction_id: 'E2E-1',
     },
   });
-  expect(conversion.status()).toBe(201);
+  expect(recorded.status()).toBe(201);
 
-  // 10-11. Remaining balance and blended rate.
-  const summary = await (await request.get(api(`strategies/${strategy.id}/summary`))).json();
-  expect(summary.converted_source_amount).toBe('120000.0000');
-  expect(summary.remaining_source_amount).toBe('680000.0000');
-  expect(summary.blended_effective_rate).toBe('1.72000000');
-  // Exposure now reflects only what is left.
-  expect(summary.one_cent_exposure).toBe('6800.0000');
+  const state = await (await request.get(api('fx/state'))).json();
+  // This is the endpoint that owns the balance, and the whole reason it is
+  // separate from POST /conversions.
+  expect(state.position.current_source_balance).toBe('680000.0000');
+  expect(state.metrics.realised.confirmed).toBe('7200.0000');
+  expect(state.metrics.realised.includes_estimates).toBe(false);
+  expect(state.metrics.total_source_converted).toBe('120000.0000');
 
   await page.goto(`${INGRESS}/conversions`);
   await expect(page.getByText('USD 120,000.00').first()).toBeVisible();
+  await expect(page.getByText('7,200.00').first()).toBeVisible();
 
   // A repeated transaction reference is refused.
   const duplicate = await request.post(api('conversions'), {
     data: {
-      strategy_id: strategy.id,
       executed_at: new Date().toISOString(),
       source_amount: '120000',
-      target_amount: '206400',
+      target_amount: '211200',
       provider_transaction_id: 'E2E-1',
     },
   });
   expect(duplicate.status()).toBe(409);
-
-  // 12. Export.
-  const backup = await request.post(api('backup'));
-  expect(backup.ok()).toBeTruthy();
-  const document = await backup.json();
-  expect(document.counts.strategies).toBe(1);
-  expect(document.counts.conversions).toBe(1);
-  expect(document.contains_secrets).toBe(false);
-
-  const csv = await request.get(api(`conversions/export?strategy_id=${strategy.id}`));
-  expect(await csv.text()).toContain('120000.0000');
 });
 
-test('the data survives a page reload and the API stays consistent', async ({
+test('an estimated conversion is never presented as a confirmed figure', async ({
   page,
   request,
 }) => {
-  // 13-14. The backend keeps its state; reloading the SPA re-reads it.
+  const recorded = await request.post(api('fx/conversions'), {
+    data: {
+      executed_at: new Date().toISOString(),
+      source_amount: '30000',
+      target_amount: '54000',
+      provider_transaction_id: 'E2E-EST',
+      amounts_estimated: true,
+    },
+  });
+  expect(recorded.status()).toBe(201);
+
+  const state = await (await request.get(api('fx/state'))).json();
+  // 30,000 at 1.8000 against a 1.7000 baseline is 3,000 — and it stays out of
+  // the confirmed figure, which is what a consumer reads.
+  expect(state.metrics.realised.confirmed).toBe('7200.0000');
+  expect(state.metrics.realised.estimated).toBe('3000.0000');
+  expect(state.metrics.realised.total).toBe('10200.0000');
+  expect(state.metrics.realised.includes_estimates).toBe(true);
+
   await page.goto(`${INGRESS}/`);
-  await expect(page.getByText('USD 680,000.00').first()).toBeVisible();
+  await expect(page.getByText('NZD 7,200.00').first()).toBeVisible();
+  await expect(page.getByText(/plus about NZD 3,000.00/)).toBeVisible();
+  await expect(page.getByText('Estimated').first()).toBeVisible();
+});
 
+test('the state can be exported and the data survives a reload', async ({ page, request }) => {
+  const exported = await request.get(api('fx/state/export'));
+  expect(exported.ok()).toBeTruthy();
+  const document = await exported.json();
+  // 800,000 less both recorded conversions: recording one is what moves it.
+  expect(document.source_balance).toBe('650000.0000');
+  expect(document.conversions).toHaveLength(2);
+  // Three fields, not one: a consumer reading only the confirmed figure cannot
+  // pick up an estimate by accident.
+  expect(document.realised_confirmed).toBe('7200.0000');
+  expect(document.realised_estimated).toBe('3000.0000');
+  expect(document.includes_estimates).toBe(true);
+
+  const backup = await request.post(api('backup'));
+  expect(backup.ok()).toBeTruthy();
+  const dump = await backup.json();
+  expect(dump.counts.fx_position).toBe(1);
+  expect(dump.counts.conversions).toBe(2);
+  expect(dump.contains_secrets).toBe(false);
+
+  await page.goto(`${INGRESS}/`);
+  await expect(page.getByText('USD 650,000.00').first()).toBeVisible();
   await page.reload();
-  await expect(page.getByText('USD 680,000.00').first()).toBeVisible();
+  await expect(page.getByText('USD 650,000.00').first()).toBeVisible();
 
-  const summary = await (await request.get(api('summary'))).json();
-  expect(summary.blended_effective_rate).toBe('1.72000000');
+  const csv = await request.get(api('conversions/export'));
+  expect(await csv.text()).toContain('120000.0000');
 });
 
 test('deep links work under the Ingress prefix', async ({ page }) => {
-  const paths = [
-    'position',
-    'chart',
-    'strategy',
-    'scenarios',
-    'conversions',
-    'settings',
-    'diagnostics',
-  ];
+  const paths = ['position', 'chart', 'conversions', 'settings', 'diagnostics'];
   for (const path of paths) {
     const response = await page.goto(`${INGRESS}/${path}`);
     expect(response?.status()).toBe(200);
     await expect(page.locator('base')).toHaveAttribute('href', `${INGRESS}/`);
   }
-});
-
-test('the strategy can be read as a JSON document that matches what is saved', async ({
-  page,
-}) => {
-  await page.goto(`${INGRESS}/strategy`);
-  await page.getByRole('button', { name: 'Edit as JSON' }).click();
-
-  const box = page.getByLabel('Strategy JSON');
-  await expect(box).toBeVisible();
-  const text = await box.inputValue();
-  const document = JSON.parse(text) as {
-    tranches: { target_rate: string }[];
-    status?: unknown;
-  };
-
-  // What is copied out is the plan, not the record of what happened.
-  expect(document.status).toBeUndefined();
-  expect(document.tranches.map((tranche) => tranche.target_rate)).toEqual([
-    '1.72000000',
-    '1.74000000',
-    '1.76000000',
-    '1.78000000',
-    '1.80000000',
-  ]);
-
-  // Untouched, the document is checked against the server and reports nothing.
-  await expect(page.getByText('Saving it would change nothing')).toBeVisible();
 });
 
 test('simulation mode shows its banner and can be reset', async ({ page, request }) => {
@@ -211,7 +202,7 @@ test('simulation mode shows its banner and can be reset', async ({ page, request
   ).toBeVisible();
 
   const replay = await request.post(api('simulation/replay'), {
-    data: { rates: ['1.7400', '1.7610', '1.7620'], seconds_between: 60 },
+    data: { rates: ['1.7400', '1.7610', '1.7720'], seconds_between: 60 },
   });
   expect(replay.ok()).toBeTruthy();
 
@@ -220,9 +211,9 @@ test('simulation mode shows its banner and can be reset', async ({ page, request
 
   await request.put(api('simulation'), { data: { enabled: false } });
 
-  // The real conversion recorded earlier is untouched by the reset.
+  // The real conversions recorded earlier are untouched by the reset.
   const conversions = await (await request.get(api('conversions'))).json();
-  expect(conversions.total_source_amount).toBe('120000.0000');
+  expect(conversions.total_source_amount).toBe('150000.0000');
 });
 
 test('no credential appears anywhere in the diagnostics bundle', async ({ request }) => {

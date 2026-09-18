@@ -601,7 +601,7 @@ async def test_the_monitor_delivers_a_movement_alert(
     from app.home_assistant.client import set_home_assistant
     from app.services import monitor, settings_service
     from app.services.rate_service import RefreshOutcome
-    from app.tests.test_alerts import FakeHomeAssistant
+    from app.tests.helpers import FakeHomeAssistant
 
     settings.notifications.services = ["notify.test"]
     settings.notifications.confirmation_samples = 1

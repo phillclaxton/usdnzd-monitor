@@ -1,8 +1,12 @@
 """Entity definitions published to Home Assistant.
 
 Every entity is declared once here, with how to derive its state and attributes
-from the dashboard summary.  Discovery payloads, MQTT state publication and the
-REST fallback all read from this one table, so they cannot drift apart.
+from the rate and the FX position.  Discovery payloads, MQTT state publication
+and the REST fallback all read from this one table, so they cannot drift apart.
+
+An entity whose figure cannot be computed publishes an empty state, which Home
+Assistant shows as unknown. That is the truthful answer; zero would be a
+different and wrong one.
 """
 
 from __future__ import annotations
@@ -13,8 +17,8 @@ from decimal import Decimal
 from typing import Any
 
 from app.money import decimal_to_str
+from app.schemas.position import PositionMetrics, PositionOut
 from app.schemas.rates import CurrentRateOut
-from app.schemas.strategy import StrategySummaryOut
 
 #: The node ID and entity-ID prefix. Matches the specification's entity names.
 NODE_ID = "fx_strategy"
@@ -28,7 +32,10 @@ class EntityContext:
     """Everything the entity state functions can read."""
 
     rate: CurrentRateOut
-    summary: StrategySummaryOut | None
+    position: PositionOut | None
+    metrics: PositionMetrics | None
+    zone_label: str | None
+    zone_guidance: str | None
     provider_healthy: bool
     provider_message: str
     mqtt_connected: bool
@@ -78,19 +85,19 @@ def _money(value: Decimal | None) -> str | None:
     return format(value.quantize(Decimal("0.01")), "f")
 
 
-def _summary_value(context: EntityContext, getter: Callable[[StrategySummaryOut], Any]) -> Any:
-    return getter(context.summary) if context.summary is not None else None
+def _metric(context: EntityContext, getter: Callable[[PositionMetrics], Any]) -> Any:
+    return getter(context.metrics) if context.metrics is not None else None
 
 
 def build_definitions(context: EntityContext) -> list[EntityDefinition]:
-    """The full entity set, named exactly as the specification lists them."""
+    """The full entity set."""
     source = context.source.lower()
     target = context.target.lower()
     pair = f"{source}_{target}"
     money_unit = context.target
 
-    def summary(getter: Callable[[StrategySummaryOut], Any]) -> StateFn:
-        return lambda ctx: _summary_value(ctx, getter)
+    def metric(getter: Callable[[PositionMetrics], Any]) -> StateFn:
+        return lambda ctx: _metric(ctx, getter)
 
     sensors: list[EntityDefinition] = [
         EntityDefinition(
@@ -117,14 +124,8 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
                 "change_24h": _d(ctx.rate.changes.twenty_four_hours),
                 "high_6m": _d(ctx.rate.high_6m),
                 "low_6m": _d(ctx.rate.low_6m),
-                "next_target": _summary_value(ctx, lambda s: _d(s.next_target_rate)),
-                "distance_to_target": _summary_value(
-                    ctx,
-                    lambda s: (
-                        _d(s.next_target_rate - ctx.rate.rate)
-                        if s.next_target_rate is not None and ctx.rate.rate is not None
-                        else None
-                    ),
+                "baseline_rate": (
+                    _d(ctx.position.baseline_rate) if ctx.position is not None else None
                 ),
             },
         ),
@@ -150,183 +151,10 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
             name="Rate zone",
             component="sensor",
             icon="mdi:gauge",
-            state=summary(lambda s: s.rate_zone.label if s.rate_zone else None),
+            state=lambda ctx: ctx.zone_label,
             attributes=lambda ctx: {
-                "guidance": _summary_value(
-                    ctx, lambda s: s.rate_zone.guidance if s.rate_zone else None
-                ),
+                "guidance": ctx.zone_guidance,
                 "note": "Zone labels are your own configuration, not a forecast.",
-            },
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_{source}_initial",
-            name=f"{context.source} initial",
-            component="sensor",
-            icon="mdi:cash",
-            unit=context.source,
-            state=summary(lambda s: _money(s.initial_source_amount)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_{source}_available",
-            name=f"{context.source} available",
-            component="sensor",
-            icon="mdi:cash",
-            unit=context.source,
-            state=summary(lambda s: _money(s.available_source_amount)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_{source}_converted",
-            name=f"{context.source} converted",
-            component="sensor",
-            icon="mdi:cash-check",
-            unit=context.source,
-            state=summary(lambda s: _money(s.converted_source_amount)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_{source}_remaining",
-            name=f"{context.source} remaining",
-            component="sensor",
-            icon="mdi:cash-clock",
-            unit=context.source,
-            state=summary(lambda s: _money(s.remaining_source_amount)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_percent_converted",
-            name="Percent converted",
-            component="sensor",
-            icon="mdi:percent",
-            unit="%",
-            state_class="measurement",
-            state=summary(lambda s: _money(s.percent_converted)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_{target}_received_gross",
-            name=f"{context.target} received (gross)",
-            component="sensor",
-            icon="mdi:cash-plus",
-            unit=money_unit,
-            state=summary(lambda s: _money(s.gross_target_received)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_{target}_received_net",
-            name=f"{context.target} received (net)",
-            component="sensor",
-            icon="mdi:cash-plus",
-            unit=money_unit,
-            state=summary(lambda s: _money(s.net_target_received)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_total_fees_{target}",
-            name=f"Total fees ({context.target})",
-            component="sensor",
-            icon="mdi:cash-minus",
-            unit=money_unit,
-            state=summary(lambda s: _money(s.total_fees)),
-            attributes=lambda ctx: {
-                "recorded": _summary_value(ctx, lambda s: s.total_fees is not None),
-                "note": "Blank when no conversion recorded a fee. Not the same as a zero fee.",
-            },
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_blended_rate_gross",
-            name="Blended rate (gross)",
-            component="sensor",
-            icon="mdi:chart-line",
-            state=summary(lambda s: _d(s.blended_gross_rate)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_blended_rate_effective",
-            name="Blended rate (effective)",
-            component="sensor",
-            icon="mdi:chart-line",
-            state=summary(lambda s: _d(s.blended_effective_rate)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_next_target_rate",
-            name="Next target rate",
-            component="sensor",
-            icon="mdi:target",
-            state=summary(lambda s: _d(s.next_target_rate)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_next_target_{source}",
-            name=f"Next target {context.source}",
-            component="sensor",
-            icon="mdi:target",
-            unit=context.source,
-            state=summary(lambda s: _money(s.next_target_source_amount)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_next_target_upside_{target}",
-            name=f"Next target upside ({context.target})",
-            component="sensor",
-            icon="mdi:trending-up",
-            unit=money_unit,
-            state=summary(lambda s: _money(s.next_target_upside)),
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_one_cent_exposure_{target}",
-            name=f"One cent exposure ({context.target})",
-            component="sensor",
-            icon="mdi:swap-vertical",
-            unit=money_unit,
-            state=summary(lambda s: _money(s.one_cent_exposure)),
-            attributes=lambda ctx: {
-                "basis": "A 0.0100 move on the amount still unconverted.",
-            },
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_convert_all_now_{target}",
-            name=f"Convert all now ({context.target})",
-            component="sensor",
-            icon="mdi:cash-fast",
-            unit=money_unit,
-            state=summary(
-                lambda s: _money(
-                    s.convert_all_now.gross_target_amount if s.convert_all_now else None
-                )
-            ),
-            attributes=lambda ctx: {
-                "quality": "gross",
-                "estimated_net": _summary_value(
-                    ctx,
-                    lambda s: _money(
-                        s.convert_all_now.net_target_amount if s.convert_all_now else None
-                    ),
-                ),
-                "fee_label": _summary_value(
-                    ctx, lambda s: s.convert_all_now.fee.label if s.convert_all_now else None
-                ),
-            },
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_estimated_wise_fee_{target}",
-            name=f"Estimated fee ({context.target})",
-            component="sensor",
-            icon="mdi:cash-minus",
-            unit=money_unit,
-            state=summary(
-                lambda s: _money(
-                    s.convert_all_now.fee.amount_target_currency if s.convert_all_now else None
-                )
-            ),
-            attributes=lambda ctx: {
-                "basis": _summary_value(
-                    ctx, lambda s: s.convert_all_now.fee.basis if s.convert_all_now else None
-                ),
-                "is_estimate": True,
-            },
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_days_to_deadline",
-            name="Days to deadline",
-            component="sensor",
-            icon="mdi:calendar-clock",
-            unit="d",
-            state=summary(lambda s: s.days_to_deadline),
-            attributes=lambda ctx: {
-                "severity": _summary_value(ctx, lambda s: s.deadline_severity),
-                "message": _summary_value(ctx, lambda s: s.deadline_message),
             },
         ),
         EntityDefinition(
@@ -344,35 +172,128 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
             state=lambda ctx: _d(ctx.rate.low_6m),
         ),
         EntityDefinition(
-            object_id=f"{NODE_ID}_strategy_status",
-            name="Strategy status",
+            object_id=f"{NODE_ID}_{source}_remaining",
+            name=f"{context.source} still held",
             component="sensor",
-            icon="mdi:ladder",
-            state=summary(lambda s: s.strategy.status),
+            icon="mdi:cash-clock",
+            unit=context.source,
+            state=lambda ctx: (
+                _money(ctx.position.current_source_balance) if ctx.position is not None else None
+            ),
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_{target}_value",
+            name=f"{context.target} value of what is held",
+            component="sensor",
+            icon="mdi:cash",
+            unit=money_unit,
+            state=metric(lambda m: _money(m.current_target_value)),
             attributes=lambda ctx: {
-                "strategy_id": _summary_value(ctx, lambda s: s.strategy.id),
-                "strategy_name": _summary_value(ctx, lambda s: s.strategy.name),
-                "tranche_count": _summary_value(ctx, lambda s: len(s.strategy.tranches)),
-                "completed_tranches": _summary_value(
-                    ctx,
-                    lambda s: sum(1 for t in s.strategy.tranches if t.status == "completed"),
-                ),
-                "remaining_tranches": _summary_value(
-                    ctx,
-                    lambda s: sum(
-                        1
-                        for t in s.strategy.tranches
-                        if t.status not in ("completed", "skipped", "cancelled")
-                    ),
-                ),
-                "final_deadline": _summary_value(
-                    ctx,
-                    lambda s: (
-                        s.strategy.final_deadline.isoformat() if s.strategy.final_deadline else None
-                    ),
-                ),
-                "walk_away_rate": _summary_value(ctx, lambda s: _d(s.strategy.walk_away_rate)),
+                "rate_status": _metric(ctx, lambda m: m.rate_status),
+                "note": "Blank when no trusted rate has arrived. Not the same as zero.",
             },
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_{source}_converted",
+            name=f"{context.source} converted",
+            component="sensor",
+            icon="mdi:cash-check",
+            unit=context.source,
+            state=metric(lambda m: _money(m.total_source_converted)),
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_{target}_received_gross",
+            name=f"{context.target} received (gross)",
+            component="sensor",
+            icon="mdi:cash-plus",
+            unit=money_unit,
+            state=metric(lambda m: _money(m.total_target_received)),
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_total_fees_{target}",
+            name=f"Total fees ({context.target})",
+            component="sensor",
+            icon="mdi:cash-minus",
+            unit=money_unit,
+            state=metric(lambda m: _money(m.total_fees_target)),
+            attributes=lambda ctx: {
+                "recorded": _metric(ctx, lambda m: m.total_fees_target is not None),
+                "note": "Blank when no conversion recorded a fee. Not the same as a zero fee.",
+            },
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_realised_improvement_{target}",
+            name=f"Realised improvement ({context.target})",
+            component="sensor",
+            icon="mdi:cash-plus",
+            unit=money_unit,
+            #: The *confirmed* half. Anything reconstructed rather than read off
+            #: a receipt stays in the attributes, so an automation reading the
+            #: state alone cannot pick up an estimate as a fact.
+            state=metric(lambda m: _money(m.realised.confirmed)),
+            attributes=lambda ctx: {
+                "estimated_additional": _metric(ctx, lambda m: _money(m.realised.estimated)),
+                "total_including_estimates": _metric(ctx, lambda m: _money(m.realised.total)),
+                "includes_estimates": _metric(ctx, lambda m: m.realised.includes_estimates),
+                "basis": "Rate improvement against the baseline, on what actually converted.",
+            },
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_unrealised_improvement_{target}",
+            name=f"Unrealised improvement ({context.target})",
+            component="sensor",
+            icon="mdi:trending-up",
+            unit=money_unit,
+            state=metric(lambda m: _money(m.unrealised_improvement)),
+            attributes=lambda _ctx: {
+                "basis": "On paper, on what is still held, against the baseline rate.",
+            },
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_total_improvement_{target}",
+            name=f"Total improvement ({context.target})",
+            component="sensor",
+            icon="mdi:chart-line",
+            unit=money_unit,
+            state=metric(lambda m: _money(m.total_improvement_confirmed)),
+            attributes=lambda _ctx: {
+                "basis": "Confirmed realised plus unrealised. Estimated rows are not included.",
+            },
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_offset_shortfall_{target}",
+            name=f"Offset shortfall ({context.target})",
+            component="sensor",
+            icon="mdi:home-percent",
+            unit=money_unit,
+            state=lambda ctx: (
+                _money(ctx.position.current_offset_shortfall_nzd)
+                if ctx.position is not None
+                else None
+            ),
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_daily_carrying_cost_{target}",
+            name=f"Daily carrying cost ({context.target})",
+            component="sensor",
+            icon="mdi:cash-minus",
+            unit=money_unit,
+            state=metric(lambda m: _money(m.daily_carrying_cost)),
+            attributes=lambda ctx: {
+                "monthly": _metric(ctx, lambda m: _money(m.monthly_carrying_cost)),
+                "basis": (
+                    "The floating loan rate on the unfunded part of the offset, "
+                    "never on the whole balance."
+                ),
+            },
+        ),
+        EntityDefinition(
+            object_id=f"{NODE_ID}_months_of_burn",
+            name="Months of spending held",
+            component="sensor",
+            icon="mdi:calendar-month",
+            unit="months",
+            state=metric(lambda m: _money(m.months_of_burn)),
         ),
         EntityDefinition(
             object_id=f"{NODE_ID}_provider_status",
@@ -395,30 +316,20 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
             state=lambda ctx: ctx.rate.status in ("stale", "unavailable"),
         ),
         EntityDefinition(
-            object_id=f"{NODE_ID}_target_reached",
-            name="Target reached",
+            object_id=f"{NODE_ID}_position_saved",
+            name="Position saved",
             component="binary_sensor",
-            icon="mdi:target",
-            state=summary(lambda s: any(row.target_reached_now for row in s.tranche_progress)),
+            icon="mdi:clipboard-check",
+            state=lambda ctx: ctx.position is not None,
             attributes=lambda ctx: {
                 "note": (
-                    "A reached target has not converted anything. Record the conversion "
-                    "once your provider has performed it."
+                    "Off until a position has been entered. Every figure derived "
+                    "from it is unknown while this is off."
                 ),
-                "reached_tranches": _summary_value(
-                    ctx,
-                    lambda s: [
-                        row.tranche.sequence for row in s.tranche_progress if row.target_reached_now
-                    ],
+                "updated_at": (
+                    ctx.position.updated_at.isoformat() if ctx.position is not None else None
                 ),
             },
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_deadline_warning",
-            name="Deadline warning",
-            component="binary_sensor",
-            device_class="problem",
-            state=summary(lambda s: s.deadline_severity in ("warning", "critical", "overdue")),
         ),
         EntityDefinition(
             object_id=f"{NODE_ID}_provider_error",
@@ -449,18 +360,7 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
             name="Attention required",
             component="binary_sensor",
             device_class="problem",
-            state=lambda ctx: bool(
-                ctx.rate.status in ("stale", "unavailable")
-                or not ctx.provider_healthy
-                or (
-                    ctx.summary is not None
-                    and ctx.summary.deadline_severity in ("warning", "critical", "overdue")
-                )
-                or (
-                    ctx.summary is not None
-                    and any(row.target_reached_now for row in ctx.summary.tranche_progress)
-                )
-            ),
+            state=lambda ctx: bool(_attention_reasons(ctx)),
             attributes=lambda ctx: {
                 "reasons": _attention_reasons(ctx),
             },
@@ -480,14 +380,6 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
             name="Test notification",
             component="button",
             icon="mdi:bell-ring",
-            entity_category="config",
-            state=lambda _ctx: None,
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_recalculate",
-            name="Recalculate",
-            component="button",
-            icon="mdi:calculator",
             entity_category="config",
             state=lambda _ctx: None,
         ),
@@ -513,32 +405,28 @@ def build_definitions(context: EntityContext) -> list[EntityDefinition]:
 
 
 def _attention_reasons(context: EntityContext) -> list[str]:
+    """Why the app thinks something needs a person.
+
+    Deliberately short: a rate it cannot trust, a provider that is failing, and
+    nothing entered to measure against. A rate that has *moved* is not on this
+    list — that is what the alerts are for, and it needs no attention.
+    """
     reasons: list[str] = []
     if context.rate.status in ("stale", "unavailable"):
         reasons.append("The rate is stale or unavailable.")
     if not context.provider_healthy:
         reasons.append(context.provider_message or "A rate provider is failing.")
-    if context.summary is not None:
-        if context.summary.deadline_severity in ("warning", "critical", "overdue"):
-            reasons.append(context.summary.deadline_message)
-        reached = [
-            row.tranche.sequence
-            for row in context.summary.tranche_progress
-            if row.target_reached_now
-        ]
-        if reached:
-            reasons.append(
-                f"Target reached for tranche(s) {', '.join(str(item) for item in reached)}. "
-                "Nothing has been converted."
-            )
+    if context.position is None:
+        reasons.append("No position has been entered, so nothing can be valued.")
     return reasons
 
 
-def writable_definitions(context: EntityContext) -> list[EntityDefinition]:
+def writable_definitions(_context: EntityContext) -> list[EntityDefinition]:
     """Optional writable controls.
 
-    Target rates are deliberately absent: changing one has to go through the
-    validating, audited API, not through a number entity.
+    The balance is deliberately absent: it is the figure every other one is
+    derived from, and changing it has to go through the validating, audited API
+    rather than a number box with no record of who moved it.
     """
     return [
         EntityDefinition(
@@ -549,16 +437,6 @@ def writable_definitions(context: EntityContext) -> list[EntityDefinition]:
             entity_category="config",
             state=lambda ctx: _d(ctx.rate.rate),
             extra={"min": 0, "max": 1000, "step": 0.0001, "mode": "box"},
-        ),
-        EntityDefinition(
-            object_id=f"{NODE_ID}_available_{context.source.lower()}",
-            name=f"Available {context.source}",
-            component="number",
-            icon="mdi:cash",
-            entity_category="config",
-            unit=context.source,
-            state=lambda ctx: _summary_value(ctx, lambda s: _money(s.available_source_amount)),
-            extra={"min": 0, "max": 1_000_000_000, "step": 0.01, "mode": "box"},
         ),
     ]
 

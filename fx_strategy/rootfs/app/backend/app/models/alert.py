@@ -13,22 +13,19 @@ from app.database import Base, RateText, UTCDateTime, utcnow
 
 
 class AlertRuleType(StrEnum):
-    TARGET_REACHED = "target_reached"
-    TARGET_NEAR = "target_near"
-    RATE_ABOVE = "rate_above"
-    RATE_BELOW = "rate_below"
-    DAILY_CHANGE = "daily_change"
+    """What raised an alert.
+
+    Stored as text, so a member that goes takes nothing with it: rows written
+    by a retired rule keep reading back as the string they were saved with.
+    The ladder's own types — target reached, target near, deadline, walk-away,
+    reversal, strategy completed — went with the ladder.
+    """
+
     PROVIDER_ERROR = "provider_error"
     PROVIDER_DISAGREEMENT = "provider_disagreement"
     RATE_STALE = "rate_stale"
-    DEADLINE_APPROACHING = "deadline_approaching"
-    DEADLINE_MISSED = "deadline_missed"
-    FUNDS_ARRIVED = "funds_arrived"
-    BALANCE_CHANGED = "balance_changed"
     CONVERSION_DETECTED = "conversion_detected"
-    STRATEGY_COMPLETED = "strategy_completed"
-    WALK_AWAY_REACHED = "walk_away_reached"
-    RATE_REVERSAL = "rate_reversal"
+    TEST = "test"
 
     # The movement alerts. Stored in a String(32) column, so adding one needs no
     # migration — only a name nobody has used before.

@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import utcnow
 from app.logging_setup import get_logger
 from app.models.audit import AuditEventType
-from app.models.strategy import Strategy
 from app.providers.base import ProviderConfigurationError, ProviderError
 from app.providers.wise import WiseBalance, WiseConversion, WiseProvider, WiseQuote
 from app.schemas.conversion import ConversionIn
@@ -165,7 +164,6 @@ async def quote(
 
 async def reconcile(
     session: AsyncSession,
-    strategy: Strategy,
     settings: Settings,
     *,
     days: int = 90,
@@ -174,9 +172,15 @@ async def reconcile(
 ) -> ReconciliationResult:
     """Compare Wise's completed conversions with what is recorded here.
 
+    The pair comes from the settings: reconciliation is against the record, and
+    the record no longer belongs to a plan. Conversions in any other pair are
+    counted and skipped rather than imported as though they were this one.
+
     Idempotent: matching is on the Wise reference, so re-running imports
     nothing twice.  Nothing is written unless ``commit`` is set.
     """
+    source_currency = settings.general.source_currency
+    target_currency = settings.general.target_currency
     result = ReconciliationResult(dry_run=not commit)
 
     try:
@@ -189,8 +193,8 @@ async def reconcile(
 
     for conversion in found:
         if (
-            conversion.source_currency != strategy.source_currency
-            or conversion.target_currency != strategy.target_currency
+            conversion.source_currency != source_currency
+            or conversion.target_currency != target_currency
         ):
             result.skipped_other_pair += 1
             continue
@@ -206,21 +210,18 @@ async def reconcile(
             continue
 
         payload = ConversionIn(
-            strategy_id=strategy.id,
             executed_at=conversion.executed_at or utcnow(),
             source_amount=conversion.source_amount,
             target_amount=conversion.target_amount,
             gross_rate=conversion.rate,
             fee_target_currency=(
                 conversion.fee
-                if conversion.fee is not None
-                and conversion.fee_currency == strategy.target_currency
+                if conversion.fee is not None and conversion.fee_currency == target_currency
                 else None
             ),
             fee_source_currency=(
                 conversion.fee
-                if conversion.fee is not None
-                and conversion.fee_currency == strategy.source_currency
+                if conversion.fee is not None and conversion.fee_currency == source_currency
                 else None
             ),
             provider="wise",
@@ -232,7 +233,9 @@ async def reconcile(
             correcting_earlier_record=True,
         )
         try:
-            await conversion_service.create_conversion(session, strategy, payload, actor=actor)
+            await conversion_service.create_conversion(
+                session, payload, currencies=(source_currency, target_currency), actor=actor
+            )
             result.imported += 1
             result.imported_references.append(conversion.reference)
         except ConversionError as exc:
@@ -242,8 +245,8 @@ async def reconcile(
         await audit.record(
             session,
             event_type=AuditEventType.RECONCILED,
-            entity_type="strategy",
-            entity_id=strategy.id,
+            entity_type="provider",
+            entity_id="wise",
             message=(
                 f"Wise reconciliation: {result.fetched} conversion(s) read, "
                 f"{result.matched} already recorded, {result.imported} imported."
