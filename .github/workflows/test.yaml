@@ -193,6 +193,10 @@ jobs:
       - name: Validate the add-on repository and manifest
         uses: home-assistant/actions/hassfest@master
         continue-on-error: true
+      - name: Check the version fields agree with each other
+        run: |
+          python3 scripts/check_versions.py
+
       - name: Validate YAML syntax
         run: |
           python3 - <<'PY'

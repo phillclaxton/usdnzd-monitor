@@ -1,32 +1,15 @@
 # First-run setup
 
 The wizard is at **Setup** the first time you open the app, or at `/setup` any
-time. Everything it asks can be changed later.
+time. It is four steps, everything it asks can be changed later, and everything
+except the balance can be left empty for now.
 
-## 1. Welcome
+If you would rather not use it, the dashboard shows the same position form until
+something is saved.
 
-States what the app does, and what it does not: it does not predict rates, and
-it does not move money. The targets are yours.
+## 1. Rate
 
-## 2. Currency pair
-
-Defaults to USD → NZD, quoted as **NZD per 1 USD** — for example
-`1 USD = 1.7500 NZD`. The pair is fixed once a strategy exists so historical
-records stay comparable.
-
-## 3. Amount
-
-| Field | Default | Notes |
-| --- | --- | --- |
-| Total to convert | 800,000 | The whole amount the strategy plans for. |
-| Available now | 0 | Exposure figures use **this**, not the total. |
-| Expected arrival | — | Used for the funds-arrived alert. |
-| Final deadline | — | Drives the deadline warnings. |
-
-Setting "available now" honestly matters: if only part of the money has arrived,
-the one-cent exposure figure should reflect what is actually at risk today.
-
-## 4. Rate provider
+Where the rate comes from:
 
 - **Manual or simulation** — works immediately, needs no account.
 - **Wise** — needs an API token; see [the Wise guide](wise.md).
@@ -36,58 +19,75 @@ the one-cent exposure figure should reflect what is actually at risk today.
 There is a test button. Use it — a provider that looks configured but returns
 nothing is worse than no provider.
 
-## 5. Strategy
+The pair defaults to USD → NZD, quoted as **NZD per 1 USD** — for example
+`1 USD = 1.7500 NZD`. It is fixed once anything has been recorded, so historical
+records stay comparable.
 
-| Template | What it does |
+## 2. What you hold
+
+| Field | Notes |
 | --- | --- |
-| Recommended staged ladder | 15% at 1.7200, 20% at 1.7400, 25% at 1.7600, 20% at 1.7800, 20% at 1.8000 |
-| Equal tranches | Five equal tranches, two cents apart from today's rate |
-| Monitor only | No tranches; watch the rate and record conversions as you make them |
+| USD still held | What has not been converted yet. The only required field. |
+| Baseline rate | The rate you would otherwise have accepted. Every improvement figure is measured against it. |
+| Baseline date | Optional, and only a note to yourself about when that rate applied. |
 
-The recommended ladder is a **starting point**, not advice. On USD 800,000 it
-allocates 120k / 160k / 200k / 160k / 160k, and if every target were reached
-would produce NZD 1,409,600 at a blended 1.7620.
+**Without a baseline the app still works.** It records what you hold and what it
+is worth, and says "set a baseline rate" wherever a gain would otherwise appear
+— rather than showing a gain of zero, which would be a different and wrong
+claim.
 
-Also set a **walk-away rate** — the level at which finishing is good enough. The
-dashboard then shows what converting the remainder now would produce against
-what holding out for a higher target would add, and what stays exposed while you
-wait.
+## 3. Your mortgage
 
-The Strategy page also has an **Edit as JSON** view if you would rather paste a
-whole plan than fill in fields. See
-[editing a strategy as JSON](strategy-json.md).
-
-## 6. Fees
-
-| Option | Result |
+| Field | Notes |
 | --- | --- |
-| Exclude fees | Everything is shown gross and labelled "Fee not included". Net cannot be calculated. |
-| Percentage estimate | A single percentage of the converted amount. |
-| Fixed plus percentage | Both, with optional minimum and maximum. |
-| Live Wise quote | Fees come from a real quote; no estimate is invented. |
+| Offset shortfall | The part of the offset account that is still unfunded. |
+| Floating loan rate | **A fraction, not a percentage**: 6.04% is `0.0604`. |
+| Monthly spending | Optional. Used for "months of spending held". |
 
-Excluding fees is honest but limiting. The app will never show you a zero fee as
-if it were a fact.
+Those two give the **carrying cost**: what the unfunded part of the offset costs
+you for every day the money is still in USD. It is charged on the shortfall,
+never on the whole balance — assuming otherwise would overstate it by an order
+of magnitude.
 
-## 7. Notifications
+The app refuses a loan rate above 1, because `6.04` instead of `0.0604` would
+inflate the carrying cost a hundredfold and still look plausible.
+
+## 4. Notifications
 
 Choose one or more Home Assistant notify services. The Settings page lists what
 your installation actually offers — no device name is hard-coded. Send a test.
 
-Quiet hours hold non-critical alerts overnight; a missed deadline or a provider
-outage still gets through if you allow critical overrides.
+Quiet hours hold non-critical alerts overnight; a provider outage still gets
+through if you allow critical overrides.
 
-## 8. Review
-
-Shows total allocation, the gross outcome if every target is reached, estimated
-fees, estimated net, the blended target rate, one-cent exposure and the
-deadline. Then **Create strategy**.
+What earns an alert, and how far the rate has to move before it says so again,
+is in **Settings → FX alerts**: the absolute move, the intraday percentage, new
+7/30/90-day highs, the levels you want watched, round-number breaks, how much
+the position's value has to change, and your mortgage thresholds.
 
 ## After setup
 
-1. Create the matching Auto Conversions in Wise, if that is your plan. The app
-   calculates the instructions; it does not create them.
-2. Activate the strategy so targets are monitored.
-3. When Wise performs a conversion, record it under **Conversions** — or
-   reconcile from the Wise API. Until you do, the remaining balance and blended
-   rate do not move.
+1. **Record what has already been converted**, under **Conversions** — or import
+   a whole history at once from the position page, or reconcile from the Wise
+   API. Until you do, the realised improvement has nothing to add up.
+2. **Set up your conversions in Wise.** The app does not create them and never
+   will; it records what happened.
+3. Leave it a day and see how many alerts you get. Every threshold is a setting,
+   and the defaults are a starting point rather than a recommendation.
+
+## Recording versus history
+
+Two routes record a conversion, and the difference is deliberate:
+
+| | |
+| --- | --- |
+| **Record a conversion** on the position page | Reduces your held balance. This is the one to use when Wise has just converted something. |
+| **Conversions page**, and the CSV or JSON importers | Record history and change nothing else. The balance in an imported document is already the balance *after* those conversions. |
+
+Neither changes your offset shortfall. Not every conversion goes to the
+mortgage, and assuming one did would quietly corrupt the carrying cost — so the
+shortfall moves only when you say so.
+
+Correcting or deleting a conversion afterwards never credits the balance back
+either. The balance is yours to state; a correction is restated on the position
+form, and the edit dialog says so where the question actually occurs to you.

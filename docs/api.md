@@ -73,61 +73,86 @@ their own.
 | --- | --- | --- |
 | `GET` | `/legacy-export` | The retired obligations data as JSON, with a dated filename |
 
-## Strategies
+## FX position
+
+The position is one row, so these paths take no ID. `GET /fx/state` answers
+**200 with `"position": null`** before anything has been entered — an empty
+position is a normal state to describe, not an error.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET`/`POST` | `/strategies` | List, create |
-| `GET`/`PUT`/`DELETE` | `/strategies/{id}` | Read, update, delete (archives when it holds conversions) |
-| `POST` | `/strategies/{id}/activate` \| `/pause` \| `/resume` \| `/complete` \| `/duplicate` | Lifecycle |
-| `GET` | `/strategies/{id}/summary` | The whole dashboard in one payload |
-| `GET` | `/strategies/{id}/scenarios?periods=4&custom_rate=` | Side-by-side comparison |
-| `GET` | `/strategies/{id}/validate` | Allocation errors and warnings |
-| `GET` | `/summary` | Summary for the active strategy |
-| `GET` | `/strategy-templates` | Recommended ladder, equal tranches, monitor-only |
-| `GET`/`POST`/`DELETE` | `/fee-models` | Fee assumptions |
+| `GET` | `/fx/state` | The position, every derived figure, the latest conversion and the count |
+| `POST` | `/fx/state` | Replace the whole position |
+| `PATCH` | `/fx/state` | Change some of it. A field sent as `null` is cleared; a field left out is untouched |
+| `GET` | `/fx/conversions` | History with per-row improvement against the baseline, a running cumulative, and the totals |
+| `POST` | `/fx/conversions` | Record a conversion **and reduce the balance** |
+| `GET` | `/fx/alerts?limit=&offset=` | What the app has said, newest first, undelivered rows included |
+| `GET` | `/fx/state/export` | The whole position and its history as one document |
+| `POST` | `/fx/state/import?commit=false&replace_conversions=false` | Load one; previews by default |
 
-### As a JSON document
+Two rules worth stating plainly, because both are easy to assume the other way:
+
+- **`POST /fx/conversions` reduces `current_source_balance`; `POST /conversions`
+  does not.** That difference is the only reason both exist. Correcting or
+  deleting through `/conversions/{id}` never credits the balance back either —
+  the balance is user-owned, and a correction is restated on the position form.
+- **Neither touches the offset shortfall.** Not every conversion goes to the
+  mortgage, and assuming one did would corrupt the carrying cost.
+
+`POST /fx/state/import` writes the balance **exactly as given**: the balance in
+a state document is already the balance after its conversions, so putting them
+through the live path would decrement it a second time. Importing the same
+history twice would double the realised gain with nothing downstream able to
+tell, so a document carrying conversions is refused while any are already
+recorded unless `replace_conversions=true`.
+
+### Realised improvement is three fields, never one
+
+Everywhere it appears — `/fx/state`, `/fx/conversions`, `/fx/state/export` — it
+is `confirmed`, `estimated`, `total` and `includes_estimates`. A row whose
+amounts were reconstructed rather than read off a receipt carries
+`amounts_estimated`, and a consumer reading only `confirmed` therefore cannot
+pick up an estimate by accident. All three are `null` together, and only when no
+baseline rate is set; with a baseline and no estimated rows, `estimated` is a
+real `0.00`.
+
+## Alert settings
+
+`fx_alerts` is a section of the settings document, so it is read and written
+through `GET`/`PUT /settings` like any other: the absolute and intraday
+thresholds, which period highs to report, the watch levels, round-number breaks,
+the value and mortgage thresholds, the new-high cooldown, and the minimum change
+since the last alert.
+
+## Fee models
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/strategies/{id}/document` | The strategy as editable JSON |
-| `POST` | `/strategies/{id}/document/preview` | What saving that text would change. Writes nothing |
-| `PUT` | `/strategies/{id}/document` | Apply the text |
-| `POST` | `/strategies/document/preview` | Check text for a strategy that does not exist yet |
-| `POST` | `/strategies/document` | Create from pasted text |
+| `GET`/`POST` | `/fee-models` | List, create |
+| `DELETE` | `/fee-models/{id}` | Delete |
 
-The body is `{"text": "…"}` — the document as typed, not as a parsed object, so
-a syntax error can be reported with a line and column instead of collapsing
-into one unlocatable message. The document itself is exactly the shape `POST
-/strategies` and `PUT /strategies/{id}` accept, so a copied document is already
-a valid request body.
-
-A preview returns `valid`, `problems`, `changes`, `warnings`,
-`tranches_added` / `_removed` / `_retargeted`, and `conversions_preserved`. A
-rejected `PUT` or `POST` returns 422 with the same located problems in
-`error.details`.
-
-See [the strategy document guide](strategy-json.md).
-
-## Tranches
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET`/`POST` | `/strategies/{id}/tranches` | List, add |
-| `PUT`/`DELETE` | `/tranches/{id}` | Update (moving a target resets its alert state), delete |
-| `POST` | `/tranches/reorder` | Renumber |
-| `POST` | `/tranches/{id}/acknowledge` | Silence repeat alerts — **does not** mark it converted |
-| `POST` | `/tranches/{id}/skip` | Close it without converting |
+Nothing computes with a fee model today — the figures that did belonged to the
+conversion ladder — but the rows are entered by hand and are in every backup, so
+they keep a way in and out.
 
 ## Conversions
 
+The record of what actually moved. A conversion belongs to no plan, so these
+paths take no strategy.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET`/`POST` | `/conversions` | List with aggregates; record one, optionally split across tranches |
+| `GET`/`POST` | `/conversions` | List with aggregates; record one **without** changing the balance |
 | `GET`/`PUT`/`DELETE` | `/conversions/{id}` | Read, correct, delete — all audited with the previous values |
-| `POST` | `/conversions/import?strategy_id=&commit=false` | CSV import, previews by default |
-| `GET` | `/conversions/export?strategy_id=` | CSV |
+| `POST` | `/conversions/import?commit=false` | CSV import, previews by default |
+| `GET` | `/conversions/export` | CSV in the format the importer accepts |
+
+`POST /conversions` returns the created object. A `tranche_reference` column in
+an imported CSV is accepted and ignored, so a file exported by an earlier
+version still imports.
+
+A repeated `provider_transaction_id` is refused with a 409, which is what makes
+a reconciliation run or a re-imported file safe to repeat.
 
 ## Wise — read-only
 
@@ -137,7 +162,7 @@ See [the strategy document guide](strategy-json.md).
 | `PUT`/`DELETE` | `/wise/credentials` | Store or remove the token |
 | `GET` | `/wise/balances`, `/wise/transactions?days=90` | Read-only account access |
 | `POST` | `/wise/quote?source_amount=` | Fee estimate, labelled not executable |
-| `POST` | `/wise/reconcile?commit=false` | Compare and optionally import; idempotent on the Wise reference |
+| `POST` | `/wise/reconcile?commit=false&days=90` | Compare and optionally import; idempotent on the Wise reference. The pair comes from the settings |
 | `GET` | `/wise/execution-policy` | States that execution is not implemented |
 
 There is no execution endpoint. `POST /wise/execute` returns an explicit refusal.
@@ -177,7 +202,7 @@ There is no execution endpoint. `POST /wise/execute` returns an explicit refusal
 | 400 / 422 | The request violates a rule; `message` says which |
 | 403 | Cross-origin state change, or a disabled feature |
 | 404 | No such record |
-| 409 | A conflict — a duplicate transaction, a tranche with conversions |
+| 409 | A conflict — a duplicate transaction, or an import that would double a recorded history |
 | 429 | Rate limited; `Retry-After` says for how long |
 | 502 | An upstream provider failed; `details.errors` lists each attempt |
 

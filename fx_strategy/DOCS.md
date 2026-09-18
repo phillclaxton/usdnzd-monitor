@@ -2,10 +2,13 @@
 
 ## What this app is
 
-A decision-support tool for converting a large balance from one currency into
-another in stages. It watches the rate, tracks what is still unconverted, tells
-you when one of your target rates is reached, and keeps a record of what you
-actually converted.
+A decision-support tool for watching a large balance you are converting from one
+currency into another. It watches the rate, values what you still hold, keeps a
+record of what you converted and what it gained, and tells you when the market
+has moved enough to be worth hearing about.
+
+It does not tell you what to convert next. Your provider executes; this records
+and monitors.
 
 **It does not provide financial advice, and it does not automatically transfer
 or convert money.** Nothing in this app can move funds.
@@ -31,9 +34,9 @@ and needs no port forwarding or reverse proxy.
 | `mqtt_username` | *(unset)* | Optional broker username. |
 | `mqtt_password` | *(unset)* | Optional broker password. Never written to the log. |
 
-Everything else — currency pair, amounts, targets, providers, notification
-services, retention — is configured inside the app, not in this panel, so it can
-be validated and audited.
+Everything else — currency pair, your position, providers, alert thresholds,
+notification services, retention — is configured inside the app, not in this
+panel, so it can be validated and audited.
 
 ### MQTT
 
@@ -49,7 +52,7 @@ backups:
 
 | Path | Contents |
 | --- | --- |
-| `/data/fx_strategy.db` | The database: strategies, tranches, rate history, conversions, audit trail. |
+| `/data/fx_strategy.db` | The database: your position, rate history, conversions, alert state, audit trail. |
 | `/data/secrets.json` | API credentials, mode `0600`, encrypted at rest, excluded from normal exports. |
 | `/data/secret.key` | The key that encrypts `secrets.json`, stored separately. |
 
@@ -58,9 +61,12 @@ CSV files to import.
 
 ## First run
 
-The setup wizard covers: the currency pair, the amount and when it arrives, the
-rate provider, the target ladder, fee assumptions, notification services, and a
-review page showing the outcome at every target before anything is created.
+Four steps: where the rate comes from, what you hold and the baseline rate you
+measure against, your mortgage offset shortfall and floating rate, and which
+Home Assistant services to notify.
+
+Everything except the balance can be left empty and filled in later, and the
+dashboard shows the same form until something is saved.
 
 ## Support
 
@@ -71,7 +77,6 @@ Guides:
 - [Installation](../docs/installation.md)
 - [First-run setup](../docs/setup.md)
 - [Rate providers](../docs/rate-providers.md)
-- [Editing a strategy as JSON](../docs/strategy-json.md)
 - [Wise API setup](../docs/wise.md)
 - [MQTT setup](../docs/mqtt.md)
 - [Backup and restore](../docs/backup-restore.md)
