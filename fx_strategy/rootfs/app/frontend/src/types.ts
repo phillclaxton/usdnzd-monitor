@@ -91,14 +91,36 @@ export interface NotificationSettings {
   enabled: boolean;
   services: string[];
   default_cooldown_minutes: number;
-  near_threshold: string;
+  /** How far the rate must fall back through a level before it can speak again. */
   reset_hysteresis: string;
   confirmation_samples: number;
   confirmation_min_seconds: number;
-  repeat_interval_minutes: number;
   quiet_hours: QuietHours;
-  reversal_threshold: string;
-  deadline_warning_days: number[];
+}
+
+/**
+ * When the app says something about the position.
+ *
+ * Preferences about behaviour, not facts about money — which is why they are
+ * settings and not columns on the position. Every threshold exists so alert
+ * volume can be turned down without a code change.
+ */
+export interface FxAlertSettings {
+  enabled: boolean;
+  absolute_rate_move: string;
+  intraday_percent_move: string;
+  alert_new_7d_high: boolean;
+  alert_new_30d_high: boolean;
+  alert_new_90d_high: boolean;
+  new_high_cooldown_minutes: number;
+  alert_round_number_breaks: boolean;
+  watch_levels: string[];
+  material_nzd_value_change: string;
+  secondary_nzd_value_change: string;
+  offset_shortfall_thresholds: string[];
+  daily_cost_thresholds: string[];
+  /** Having spoken at one rate, say nothing again until it has moved this far. */
+  minimum_change_since_last_alert: string;
 }
 
 export interface HomeAssistantSettings {
@@ -147,6 +169,7 @@ export interface Settings {
   retention: RetentionSettings;
   zones: ZoneSettings;
   simulation: SimulationSettings;
+  fx_alerts: FxAlertSettings;
 }
 
 export interface AuditEvent {

@@ -124,17 +124,26 @@ class QuietHours(Section):
 
 
 class NotificationSettings(Section):
+    """How an alert is delivered, once something has decided there is one.
+
+    What *earns* an alert is :class:`FxAlertSettings`. The split is the same one
+    the UI shows: this section cannot make the app say more, only decide where a
+    message goes and how often.
+
+    ``near_threshold``, ``repeat_interval_minutes``, ``reversal_threshold`` and
+    ``deadline_warning_days`` were read only by the conversion ladder and went
+    with it in 2.0.0. A stored settings row that still carries them is fine —
+    ``Section`` ignores unknown keys, deliberately.
+    """
+
     enabled: bool = True
     services: list[str] = Field(default_factory=lambda: ["notify.persistent_notification"])
     default_cooldown_minutes: int = Field(default=60, ge=0)
-    near_threshold: RateStr = Decimal("0.0050")
+    #: How far the rate must fall back through a level before it speaks again.
     reset_hysteresis: RateStr = Decimal("0.0050")
     confirmation_samples: int = Field(default=2, ge=1, le=10)
     confirmation_min_seconds: int = Field(default=30, ge=0)
-    repeat_interval_minutes: int = Field(default=0, ge=0)
     quiet_hours: QuietHours = Field(default_factory=QuietHours)
-    reversal_threshold: RateStr = Decimal("0.0200")
-    deadline_warning_days: list[int] = Field(default_factory=lambda: [30, 14, 7, 3, 1])
 
 
 class HomeAssistantSettings(Section):

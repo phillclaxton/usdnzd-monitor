@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import FxAlertSettingsPanel from '@/components/FxAlertSettings';
 import NotificationSettingsPanel from '@/components/NotificationSettings';
 import GenericProviderSettingsPanel from '@/components/GenericProviderSettings';
 import WiseSettingsPanel from '@/components/WiseSettings';
@@ -268,6 +269,8 @@ export default function SettingsPage() {
       <GenericProviderSettingsPanel />
 
       <WiseSettingsPanel />
+
+      <FxAlertSettingsPanel settings={settings.data} onSave={save} />
 
       <NotificationSettingsPanel
         settings={settings.data}

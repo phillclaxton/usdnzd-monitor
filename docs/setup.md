@@ -65,6 +65,11 @@ is in **Settings → FX alerts**: the absolute move, the intraday percentage, ne
 7/30/90-day highs, the levels you want watched, round-number breaks, how much
 the position's value has to change, and your mortgage thresholds.
 
+Notifications and FX alerts are two different gates, and both have to be open:
+this step decides *where* a message goes, and that panel decides *whether there
+is one*. If it turns out too talkative on the first real day, raise **"say
+nothing again until the rate has moved"** before switching anything off.
+
 ## After setup
 
 1. **Record what has already been converted**, under **Conversions** — or import
